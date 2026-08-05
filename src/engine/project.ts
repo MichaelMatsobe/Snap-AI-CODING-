@@ -12,10 +12,15 @@ function block(
   fields: Record<string, string | number> = {},
   opts: Partial<BlockInstance> = {}
 ): BlockInstance {
+  const inputs: BlockInstance['inputs'] = {};
+  for (const [k, v] of Object.entries(fields)) {
+    inputs[k] = { kind: 'shadow', value: v };
+  }
   return {
     id: uuid(),
     opcode,
     fields,
+    inputs,
     nextId: null,
     branchId: null,
     branch2Id: null,
@@ -119,6 +124,9 @@ function normalize(p: Project): Project {
     }
     if (s.ghost == null) s.ghost = 0;
     if (!s.rotationStyle) s.rotationStyle = 'all around';
+    for (const b of Object.values(s.blocks || {})) {
+      if (!b.inputs) b.inputs = {};
+    }
   }
   return p;
 }
