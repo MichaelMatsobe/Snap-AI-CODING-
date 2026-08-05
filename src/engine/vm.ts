@@ -1,9 +1,12 @@
 /**
  * Stage VM — Scratch-like interpreter with clones, lists, pen, AI/ML hooks.
+ * Nested reporters via eval.ts; webcam via TensorFlow.js COCO-SSD.
  */
 
 import { v4 as uuid } from 'uuid';
 import type { Project, SpriteState, VmSnapshot, VmStatus } from './types';
+import { makeEvalCtx, numInput, strInput, boolCondition } from './vmEvalBridge';
+import { detectFromWebcam, topLabel } from './vision';
 
 interface Thread {
   spriteId: string;
@@ -11,12 +14,9 @@ interface Thread {
   stack: Array<{ blockId: string; mode: 'forever' | 'repeat' | 'branch'; remaining?: number }>;
   waitUntil: number;
   stopped: boolean;
-  /** pending async AI result key */
-  pendingAi?: Promise<void>;
 }
 
 export type VmListener = (snap: VmSnapshot) => void;
-
 export type AiCaller = (prompt: string) => Promise<string>;
 
 export class StageVM {
@@ -35,6 +35,7 @@ export class StageVM {
   private volume = 100;
   private sayUntil = 0;
   private sayText = '';
+  private visionLabels: string[] = [];
 
   constructor(project: Project) {
     this.project = structuredClone(project);
@@ -44,6 +45,10 @@ export class StageVM {
 
   setAiCaller(fn: AiCaller | null) {
     this.aiCaller = fn;
+  }
+
+  setVisionLabels(labels: string[]) {
+    this.visionLabels = labels;
   }
 
   setInputState(opts: { keys?: Set<string>; mouse?: { x: number; y: number; down: boolean } }) {
@@ -76,6 +81,7 @@ export class StageVM {
       message: this.lastMessage || this.sayText || undefined,
       penTrails: this.project.penTrails,
       answer: this.answer,
+      visionLabels: this.visionLabels,
     };
     this.listeners.forEach((fn) => fn(snap));
   }
@@ -89,7 +95,6 @@ export class StageVM {
     this.project = structuredClone(project);
     if (!this.project.lists) this.project.lists = { list: [] };
     if (!this.project.penTrails) this.project.penTrails = [];
-    // drop clones on reload
     this.project.sprites = this.project.sprites.filter((s) => !s.isClone);
     this.emit();
   }
@@ -105,7 +110,6 @@ export class StageVM {
     this.status = 'running';
     this.lastMessage = '';
     this.timerStart = performance.now();
-
     for (const sprite of this.project.sprites) {
       this.startHats(sprite, 'event_whenflagclicked');
     }
@@ -199,7 +203,6 @@ export class StageVM {
 
   private stepAll() {
     const now = performance.now();
-    // copy — threads may grow (clones)
     const list = [...this.threads];
     for (const thread of list) {
       if (thread.stopped) continue;
@@ -210,28 +213,6 @@ export class StageVM {
 
   private getSprite(id: string): SpriteState | undefined {
     return this.project.sprites.find((s) => s.id === id);
-  }
-
-  private evalCondition(cond: string, sprite: SpriteState): boolean {
-    const c = cond.toLowerCase().trim();
-    if (c === 'true' || c === '1') return true;
-    if (c === 'false' || c === '0') return false;
-    if (c.includes('touching') && c.includes('edge')) return this.touchingEdge(sprite);
-    if (c.includes('mouse down')) return this.mouse.down;
-    if (c.startsWith('key ')) {
-      const k = c.replace('key ', '').replace(' pressed?', '').replace('?', '').trim();
-      return this.keys.has(k);
-    }
-    // compare patterns "score > 10"
-    const m = c.match(/^(\w+)\s*([><=]+)\s*(-?[\d.]+)$/);
-    if (m) {
-      const v = Number(this.project.variables[m[1]] ?? 0);
-      const n = Number(m[3]);
-      if (m[2] === '>') return v > n;
-      if (m[2] === '<') return v < n;
-      if (m[2] === '=' || m[2] === '==') return v === n;
-    }
-    return this.touchingEdge(sprite);
   }
 
   private stepThread(thread: Thread, now: number) {
@@ -281,9 +262,17 @@ export class StageVM {
       return;
     }
 
-    const num = (k: string, fb = 0) => Number(b.fields[k] ?? fb);
-    const str = (k: string, fb = '') => String(b.fields[k] ?? fb);
-    const penDown = (sprite as SpriteState & { _pen?: boolean })._pen;
+    const ctx = makeEvalCtx(
+      this.project,
+      sprite,
+      this.keys,
+      this.mouse,
+      this.timerStart,
+      this.answer,
+      this.visionLabels
+    );
+    const num = (k: string, fb = 0) => numInput(b, k, ctx, fb);
+    const str = (k: string, fb = '') => strInput(b, k, ctx, fb);
 
     const moveTo = (nx: number, ny: number) => {
       if ((sprite as SpriteState & { _pen?: boolean })._pen) {
@@ -324,18 +313,17 @@ export class StageVM {
         break;
       case 'motion_goto': {
         const t = str('TARGET');
-        if (t.includes('random')) moveTo((Math.random() - 0.5) * this.project.stageWidth, (Math.random() - 0.5) * this.project.stageHeight);
+        if (t.includes('random'))
+          moveTo((Math.random() - 0.5) * this.project.stageWidth, (Math.random() - 0.5) * this.project.stageHeight);
         else if (t.includes('mouse')) moveTo(this.mouse.x, this.mouse.y);
         thread.blockId = b.nextId;
         break;
       }
-      case 'motion_glidesecstoxy': {
-        // simplified: instant + wait
+      case 'motion_glidesecstoxy':
         moveTo(num('X'), num('Y'));
         thread.waitUntil = now + num('SECS', 1) * 1000;
         thread.blockId = b.nextId;
         break;
-      }
       case 'motion_pointindirection':
         sprite.direction = num('DIRECTION', 90);
         thread.blockId = b.nextId;
@@ -393,7 +381,8 @@ export class StageVM {
       case 'looks_switchcostumeto': {
         const idx = Number(str('COSTUME', '0'));
         if (sprite.costumes?.length) {
-          sprite.costumeIndex = ((idx % sprite.costumes.length) + sprite.costumes.length) % sprite.costumes.length;
+          sprite.costumeIndex =
+            ((idx % sprite.costumes.length) + sprite.costumes.length) % sprite.costumes.length;
           sprite.costumeUrl = sprite.costumes[sprite.costumeIndex].url;
         }
         thread.blockId = b.nextId;
@@ -415,7 +404,8 @@ export class StageVM {
         thread.blockId = b.nextId;
         break;
       case 'looks_changeeffectby':
-        if (str('EFFECT') === 'ghost') sprite.ghost = Math.min(100, Math.max(0, (sprite.ghost || 0) + num('CHANGE', 25)));
+        if (str('EFFECT') === 'ghost')
+          sprite.ghost = Math.min(100, Math.max(0, (sprite.ghost || 0) + num('CHANGE', 25)));
         thread.blockId = b.nextId;
         break;
       case 'looks_seteffectto':
@@ -466,11 +456,15 @@ export class StageVM {
         thread.blockId = b.branchId;
         break;
       case 'control_repeat':
-        thread.stack.push({ blockId: b.id, mode: 'repeat', remaining: Math.max(0, Math.floor(num('TIMES', 10))) });
+        thread.stack.push({
+          blockId: b.id,
+          mode: 'repeat',
+          remaining: Math.max(0, Math.floor(num('TIMES', 10))),
+        });
         thread.blockId = b.branchId;
         break;
       case 'control_if': {
-        const ok = this.evalCondition(str('CONDITION', 'touching edge'), sprite);
+        const ok = boolCondition(b, ctx);
         if (ok && b.branchId) {
           thread.stack.push({ blockId: b.id, mode: 'branch' });
           thread.blockId = b.branchId;
@@ -478,22 +472,17 @@ export class StageVM {
         break;
       }
       case 'control_if_else': {
-        const ok = this.evalCondition(str('CONDITION', 'touching edge'), sprite);
+        const ok = boolCondition(b, ctx);
         thread.stack.push({ blockId: b.id, mode: 'branch' });
         thread.blockId = ok ? b.branchId : b.branch2Id;
         break;
       }
       case 'control_wait_until':
-        if (this.evalCondition(str('CONDITION', 'touching edge'), sprite)) thread.blockId = b.nextId;
-        // else stay
+        if (boolCondition(b, ctx)) thread.blockId = b.nextId;
         break;
       case 'control_repeat_until':
-        if (this.evalCondition(str('CONDITION', 'touching edge'), sprite)) {
-          thread.blockId = b.nextId;
-        } else {
-          thread.stack.push({ blockId: b.id, mode: 'forever' }); // reuse: check each loop
-          // better: custom — push forever-like that checks condition
-          thread.stack.pop();
+        if (boolCondition(b, ctx)) thread.blockId = b.nextId;
+        else {
           thread.stack.push({ blockId: b.id, mode: 'repeat', remaining: 999999 });
           thread.blockId = b.branchId;
         }
@@ -522,9 +511,7 @@ export class StageVM {
           cloneOf: src.id,
           localVars: {},
         };
-        // clones share scripts from original template (already cloned blocks)
         this.project.sprites.push(clone);
-        // start when I start as clone hats
         for (const rootId of clone.scriptRoots) {
           const root = clone.blocks[rootId];
           if (root?.opcode === 'control_start_as_clone') {
@@ -559,7 +546,9 @@ export class StageVM {
         break;
 
       case 'data_setvariableto':
-        this.project.variables[str('VARIABLE', 'score')] = isNaN(num('VALUE')) ? str('VALUE') : num('VALUE');
+        this.project.variables[str('VARIABLE', 'score')] = isNaN(num('VALUE'))
+          ? str('VALUE')
+          : num('VALUE');
         thread.blockId = b.nextId;
         break;
       case 'data_changevariableby': {
@@ -638,14 +627,31 @@ export class StageVM {
         break;
       }
 
-      // AI / ML — async via wait
+      case 'ml_webcam_label': {
+        const variable = str('VARIABLE', 'vision');
+        thread.waitUntil = now + 60000;
+        void (async () => {
+          try {
+            const dets = await detectFromWebcam();
+            const labels = dets.map((d) => d.class);
+            this.visionLabels = labels;
+            this.project.variables[variable] = topLabel(dets);
+            this.project.lists['objects'] = labels;
+          } catch {
+            this.project.variables[variable] = 'webcam-error';
+          }
+          thread.waitUntil = 0;
+        })();
+        thread.blockId = b.nextId;
+        break;
+      }
+
       case 'ai_ask':
       case 'ai_complete':
       case 'ai_summarize':
       case 'ai_classify_text':
       case 'ml_describe_scene':
       case 'ml_classify_image':
-      case 'ml_webcam_label':
       case 'ml_similarity':
       case 'ml_predict_number':
       case 'ml_detect_objects': {
@@ -658,9 +664,9 @@ export class StageVM {
               : b.opcode === 'ml_predict_number'
                 ? `Given features [${str('FEATURES')}], predict a number. Reply with a number only.`
                 : b.opcode === 'ml_detect_objects'
-                  ? 'List 3 plausible objects on a kids game stage as comma-separated names.'
+                  ? 'List 3 objects as comma-separated names.'
                   : b.opcode.startsWith('ml_')
-                    ? `Describe a Scratch stage scene briefly for computer vision practice.`
+                    ? 'Describe a game stage scene briefly.'
                     : str('PROMPT', str('TEXT', 'Hello'));
 
         if (this.aiCaller) {
@@ -668,7 +674,10 @@ export class StageVM {
           this.aiCaller(prompt)
             .then((text) => {
               if (b.opcode === 'ml_detect_objects') {
-                this.project.lists[str('LIST', 'objects')] = text.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+                this.project.lists[str('LIST', 'objects')] = text
+                  .split(/[,\n]/)
+                  .map((s) => s.trim())
+                  .filter(Boolean);
               } else {
                 this.project.variables[variable] = text.slice(0, 500);
               }
@@ -679,15 +688,16 @@ export class StageVM {
               thread.waitUntil = 0;
             });
         } else {
-          // offline heuristic
           this.project.variables[variable] =
-            b.opcode === 'ml_similarity' ? String(50 + Math.floor(Math.random() * 40)) : `AI offline: ${prompt.slice(0, 40)}`;
+            b.opcode === 'ml_similarity'
+              ? String(50 + Math.floor(Math.random() * 40))
+              : `AI offline: ${prompt.slice(0, 40)}`;
         }
         thread.blockId = b.nextId;
         break;
       }
       case 'ai_build_script':
-        this.lastMessage = `AI build: ${str('PROMPT')} (use assistant panel to inject)`;
+        this.lastMessage = `AI build: ${str('PROMPT')} (use assistant panel)`;
         thread.blockId = b.nextId;
         break;
 
