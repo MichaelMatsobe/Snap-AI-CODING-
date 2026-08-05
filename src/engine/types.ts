@@ -22,14 +22,23 @@ export interface BlockDef {
   shape: BlockShape;
   label: string;
   fields?: Record<string, string | number>;
+  /** Named input sockets that accept nested reporters */
+  inputNames?: string[];
   color: string;
   textColor?: string;
 }
+
+/** Scratch-like input: literal or nested block id */
+export type BlockInput =
+  | { kind: 'shadow'; value: string | number }
+  | { kind: 'block'; blockId: string };
 
 export interface BlockInstance {
   id: string;
   opcode: string;
   fields: Record<string, string | number>;
+  /** Nested reporter/boolean sockets */
+  inputs: Record<string, BlockInput>;
   nextId: string | null;
   branchId: string | null;
   branch2Id: string | null;
@@ -40,9 +49,7 @@ export interface BlockInstance {
 export interface Costume {
   id: string;
   name: string;
-  /** data URL or remote URL */
   url: string;
-  /** optional pixel bitmap for editor (base64 png) */
   bitmap?: string;
   width: number;
   height: number;
@@ -59,15 +66,12 @@ export interface SpriteState {
   costumeUrl: string;
   costumes: Costume[];
   costumeIndex: number;
-  /** ghost 0–100 */
   ghost: number;
   rotationStyle: 'all around' | 'left-right' | "don't rotate";
   blocks: Record<string, BlockInstance>;
   scriptRoots: string[];
-  /** clone metadata */
   isClone?: boolean;
   cloneOf?: string;
-  /** local vars for clones */
   localVars?: Record<string, number | string>;
 }
 
@@ -90,7 +94,6 @@ export interface Project {
   lists: ProjectLists;
   sprites: SpriteState[];
   activeSpriteId: string;
-  /** pen trails as simple line segments */
   penTrails?: Array<{ x1: number; y1: number; x2: number; y2: number; color: string; size: number }>;
 }
 
@@ -115,15 +118,13 @@ export interface VmSnapshot {
   message?: string;
   penTrails?: Project['penTrails'];
   answer?: string;
+  visionLabels?: string[];
 }
 
-/** AI-generated script payload */
 export interface AiScriptBlock {
   opcode: string;
   fields?: Record<string, string | number>;
-  /** index of next block in array, or null */
   next?: number | null;
-  /** index of branch body */
   branch?: number | null;
   branch2?: number | null;
 }
