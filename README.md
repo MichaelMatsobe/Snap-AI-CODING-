@@ -1,67 +1,57 @@
-# Snap! Technical Atelier
+# Snap! Technical Atelier v1.3
 
-Professional **visual programming IDE** with a live **Scratch/Snap!-style runtime**, **costume editor**, **cloning**, **AI/ML blocks**, and an assistant that **builds real block scripts** from natural language.
+Visual programming IDE (Scratch/Snap!-style) with live VM, nested reporters, TensorFlow.js webcam detection, SB3 import, AI script builder, and free multi-provider chat.
 
-## Run
+## Quick start
 
 ```bash
 git pull && npm install && npm run dev
 ```
 
-Open http://localhost:3000 — press the **green flag**, try **AI → “Build spin forever”**.
+Open http://localhost:3000
 
-## Block library
+## What was missing → now wired
 
-Categories: **Motion, Looks, Sound, Events, Control, Sensing, Operators, Variables, Lists, Pen, AI, ML**
+| Gap | Status |
+|-----|--------|
+| Nested reporter sockets (UI + runtime) | **Done** — drop operators/sensing into number slots; VM uses `eval.ts` |
+| True webcam + TensorFlow | **Done** — `@tensorflow/tfjs` + `coco-ssd` in `vision.ts`; panel + `ml_webcam_label` |
+| Scratch `.sb3` import | **Done** — `Import SB3` button, `jszip` + `sb3Import.ts` |
+| Control if/else with boolean plugs | **Done** — `boolCondition` + `CONDITION` input block |
+| Input detach on delete | **Done** — cascade walks nested inputs |
 
-Includes Scratch 3-inspired opcodes plus:
+## How to use the new pieces
 
-| AI | ML / Vision |
-|----|-------------|
-| `ai_ask` / `ai_complete` | `ml_classify_image` |
-| `ai_classify_text` | `ml_describe_scene` |
-| `ai_summarize` | `ml_detect_objects` |
-| `ai_build_script` | `ml_webcam_label` |
-| | `ml_similarity` / `ml_predict_number` |
+### Nested reporters
+1. Open **Operators** or **Sensing** in the palette.
+2. Drag e.g. `pick random 1 to 10` onto a **number field** of `move … steps` (not only the canvas).
+3. Green flag — the VM evaluates the nested block each step.
 
-AI/ML stack blocks call the free multi-provider backend (Pollinations → Ollama → …) and write results into variables/lists.
+### Webcam COCO-SSD
+1. Right panel → **Start webcam** → allow camera.
+2. **COCO-SSD** runs client-side detection (downloads model on first use).
+3. Labels fill `vision` variable and `objects` list; status bar shows top class.
+4. Block **ML → webcam label → vision** does the same from a script.
 
-## Runtime features
+### Import SB3
+1. Header → **Import SB3** → choose a Scratch 3 `.sb3` file.
+2. Sprites, scripts, variables/lists, and costume assets are converted into Atelier format.
 
-- **Drag-and-drop** palette → canvas, stack + C-block bodies
-- **Green flag / pause / stop / turbo**
-- **Cloning**: `create clone of`, `when I start as a clone`, `delete this clone`
-- **Broadcast** receive/send
-- **Lists**, **pen** trails, **costumes** (switch / next)
-- **Costume editor**: brush/eraser, save as data-URL costume
-- **Key hats** (keyboard events)
-- **Project autosave** (localStorage) + `PUT /api/projects/:id`
+## Stack
 
-## AI builds blocks
+- React 19 + Vite + Express
+- Free AI: Pollinations → Ollama → Groq → OpenRouter
+- TF.js COCO-SSD (browser)
+- JSZip SB3 loader
+- Deploy: Docker / Railway / Fly
 
-In the AI panel, say e.g. *“Build a script that spins forever”*.
+## Remaining product polish (not blockers)
 
-1. Model is prompted to return JSON block graphs.
-2. Parser injects a real stack onto the **active sprite**.
-3. If the API is offline, a **heuristic builder** still places a sensible stack.
-
-## Deploy
-
-`Dockerfile`, `railway.toml`, `fly.toml` — see earlier README notes. Production: `npm run build && npm start`.
-
-## Layout
-
-```
-src/engine/     blocks, VM, project, scriptBuilder
-src/components/ Workspace, Stage, CostumeEditor, AiAssistant
-server/         Express, AI providers, project store
-```
-
-## Limits (honest)
-
-- Boolean/reporter blocks are palette-visible; conditions in `if` are **string expressions** (e.g. `touching edge`, `score > 10`), not nested reporter plugs.
-- Webcam vision uses AI description of the stage, not a local TensorFlow model (plug-in ready via `ml_*` opcodes).
-- Not every Scratch extension (video sensing hardware, MIDI, etc.) is emulated.
+- Full Scratch magnetic snap geometry / undo stack
+- Boolean hexagon *shape* distinct from rounded reporters in UI
+- All Scratch extensions (MIDI, Lego, etc.)
+- Server-side durable DB beyond `data/projects.json`
+- Export *to* SB3
 
 ## License
 
