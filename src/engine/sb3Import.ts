@@ -1,5 +1,6 @@
 /**
  * Import Scratch 3 .sb3 (ZIP + project.json) into Atelier Project format.
+ * Includes stage scripts as a synthetic "Stage" sprite when present.
  */
 
 import JSZip from 'jszip';
@@ -41,11 +42,9 @@ interface Sb3Project {
 function parseInput(raw: unknown): BlockInput | null {
   if (!Array.isArray(raw) || raw.length < 2) return null;
   const payload = raw[1];
-  // [1, blockId] or [2, blockId] — block reference
   if (typeof payload === 'string') {
     return { kind: 'block', blockId: payload };
   }
-  // [1, [type, value]] shadow literal
   if (Array.isArray(payload)) {
     const v = payload[1];
     if (typeof v === 'string' || typeof v === 'number') {
@@ -63,7 +62,7 @@ function convertBlocks(sb3Blocks: Record<string, Sb3Block>): {
   const roots: string[] = [];
 
   for (const [id, b] of Object.entries(sb3Blocks)) {
-    if (b.shadow) continue; // shadows absorbed into inputs
+    if (b.shadow) continue;
 
     const fields: Record<string, string | number> = {};
     if (b.fields) {
@@ -75,11 +74,9 @@ function convertBlocks(sb3Blocks: Record<string, Sb3Block>): {
     const inputs: Record<string, BlockInput> = {};
     if (b.inputs) {
       for (const [k, raw] of Object.entries(b.inputs)) {
-        // SUBSTACK / SUBSTACK2 handled as branch
         if (k === 'SUBSTACK' || k === 'SUBSTACK2') continue;
         const parsed = parseInput(raw);
         if (parsed) inputs[k] = parsed;
-        // also mirror numeric shadows into fields for simple opcodes
         if (parsed?.kind === 'shadow') {
           fields[k] = parsed.value;
         }
@@ -168,8 +165,6 @@ export async function importSb3(file: ArrayBuffer | Blob): Promise<Project> {
       }
     }
 
-    if (target.isStage) continue;
-
     const { blocks, roots } = convertBlocks(target.blocks || {});
     const costumes: Costume[] = [];
     for (const c of target.costumes || []) {
@@ -182,7 +177,9 @@ export async function importSb3(file: ArrayBuffer | Blob): Promise<Project> {
         url:
           'data:image/svg+xml,' +
           encodeURIComponent(
-            `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="12" fill="#9966FF"/></svg>`
+            `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="12" fill="${
+              target.isStage ? '#111' : '#9966FF'
+            }"/></svg>`
           ),
         width: 96,
         height: 96,
@@ -190,14 +187,19 @@ export async function importSb3(file: ArrayBuffer | Blob): Promise<Project> {
     }
     const idx = target.currentCostume || 0;
 
+    // Include stage as a scriptable sprite when it has blocks (Scratch stage scripts)
+    if (target.isStage && roots.length === 0 && Object.keys(blocks).length === 0) {
+      continue;
+    }
+
     sprites.push({
       id: uuid(),
-      name: target.name,
-      x: target.x ?? 0,
-      y: target.y ?? 0,
+      name: target.isStage ? 'Stage' : target.name,
+      x: target.isStage ? 0 : target.x ?? 0,
+      y: target.isStage ? 0 : target.y ?? 0,
       direction: target.direction ?? 90,
-      size: target.size ?? 100,
-      visible: target.visible !== false,
+      size: target.isStage ? 100 : target.size ?? 100,
+      visible: target.isStage ? false : target.visible !== false,
       costumeUrl: costumes[Math.min(idx, costumes.length - 1)].url,
       costumes,
       costumeIndex: Math.min(idx, costumes.length - 1),
@@ -212,6 +214,9 @@ export async function importSb3(file: ArrayBuffer | Blob): Promise<Project> {
     throw new Error('No sprites found in SB3');
   }
 
+  const active =
+    sprites.find((s) => s.name !== 'Stage')?.id || sprites[0].id;
+
   return {
     id: uuid(),
     name: 'Imported SB3',
@@ -222,7 +227,7 @@ export async function importSb3(file: ArrayBuffer | Blob): Promise<Project> {
     variables: Object.keys(variables).length ? variables : { score: 0 },
     lists: Object.keys(lists).length ? lists : { list: [] },
     sprites,
-    activeSpriteId: sprites[0].id,
+    activeSpriteId: active,
     penTrails: [],
   };
 }

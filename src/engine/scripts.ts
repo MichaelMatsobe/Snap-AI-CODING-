@@ -56,6 +56,15 @@ export function attachBranch(sprite: SpriteState, parentId: string, childId: str
   sprite.scriptRoots = sprite.scriptRoots.filter((id) => id !== childId);
 }
 
+/** Else branch for control_if_else */
+export function attachBranch2(sprite: SpriteState, parentId: string, childId: string): void {
+  detachBlock(sprite, childId);
+  const parent = sprite.blocks[parentId];
+  if (!parent) return;
+  parent.branch2Id = childId;
+  sprite.scriptRoots = sprite.scriptRoots.filter((id) => id !== childId);
+}
+
 export function placeAsRoot(sprite: SpriteState, blockId: string, x: number, y: number): void {
   detachBlock(sprite, blockId);
   const b = sprite.blocks[blockId];

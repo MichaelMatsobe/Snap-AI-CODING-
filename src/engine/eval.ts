@@ -87,6 +87,14 @@ export function evalReporter(block: BlockInstance, ctx: EvalCtx): string | numbe
       if (op === 'sqrt') return Math.sqrt(n);
       if (op === 'sin') return Math.sin((n * Math.PI) / 180);
       if (op === 'cos') return Math.cos((n * Math.PI) / 180);
+      if (op === 'tan') return Math.tan((n * Math.PI) / 180);
+      if (op === 'asin') return (Math.asin(n) * 180) / Math.PI;
+      if (op === 'acos') return (Math.acos(n) * 180) / Math.PI;
+      if (op === 'atan') return (Math.atan(n) * 180) / Math.PI;
+      if (op === 'ln') return Math.log(n);
+      if (op === 'log') return Math.log10(n);
+      if (op === 'e ^') return Math.exp(n);
+      if (op === '10 ^') return Math.pow(10, n);
       return n;
     }
     case 'sensing_mousex':
@@ -127,6 +135,23 @@ export function evalReporter(block: BlockInstance, ctx: EvalCtx): string | numbe
       return (ctx.project.lists[str('LIST', 'list')] || []).length;
     case 'data_listcontainsitem':
       return (ctx.project.lists[str('LIST', 'list')] || []).map(String).includes(str('ITEM'));
+    case 'data_variable':
+      return ctx.project.variables[str('VARIABLE', 'score')] ?? 0;
+    case 'motion_xposition':
+      return ctx.sprite.x;
+    case 'motion_yposition':
+      return ctx.sprite.y;
+    case 'motion_direction':
+      return ctx.sprite.direction;
+    case 'looks_size':
+      return ctx.sprite.size;
+    case 'looks_costumenumbername': {
+      const mode = str('NUMBER_NAME', 'number');
+      if (mode.includes('name')) return ctx.sprite.costumes?.[ctx.sprite.costumeIndex]?.name ?? '';
+      return (ctx.sprite.costumeIndex ?? 0) + 1;
+    }
+    case 'sound_volume':
+      return 100;
     case 'sensing_of': {
       const prop = str('PROPERTY', 'x position');
       if (prop.includes('x')) return ctx.sprite.x;
@@ -150,7 +175,6 @@ export function evalReporter(block: BlockInstance, ctx: EvalCtx): string | numbe
     case 'sensing_dayssince2000':
       return (Date.now() - Date.UTC(2000, 0, 1)) / 86400000;
     default:
-      // variable reporter-like: field VARIABLE
       if (block.fields.VARIABLE) return ctx.project.variables[String(block.fields.VARIABLE)] ?? 0;
       return 0;
   }

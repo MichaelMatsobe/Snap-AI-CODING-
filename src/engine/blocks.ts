@@ -52,6 +52,9 @@ export const BLOCK_DEFS: BlockDef[] = [
   d('motion_sety', 'Motion', 'stack', 'set y to {Y}', { Y: 0 }),
   d('motion_ifonedgebounce', 'Motion', 'stack', 'if on edge, bounce'),
   d('motion_setrotationstyle', 'Motion', 'stack', 'set rotation style {STYLE}', { STYLE: 'all around' }),
+  d('motion_xposition', 'Motion', 'reporter', 'x position'),
+  d('motion_yposition', 'Motion', 'reporter', 'y position'),
+  d('motion_direction', 'Motion', 'reporter', 'direction'),
 
   // ── Looks ───────────────────────────────────────────
   d('looks_sayforsecs', 'Looks', 'stack', 'say {MESSAGE} for {SECS} seconds', { MESSAGE: 'Hello!', SECS: 2 }),
@@ -68,6 +71,8 @@ export const BLOCK_DEFS: BlockDef[] = [
   d('looks_show', 'Looks', 'stack', 'show'),
   d('looks_hide', 'Looks', 'stack', 'hide'),
   d('looks_gotofrontback', 'Looks', 'stack', 'go to {LAYER} layer', { LAYER: 'front' }),
+  d('looks_size', 'Looks', 'reporter', 'size'),
+  d('looks_costumenumbername', 'Looks', 'reporter', 'costume {NUMBER_NAME}', { NUMBER_NAME: 'number' }),
 
   // ── Sound ───────────────────────────────────────────
   d('sound_play', 'Sound', 'stack', 'play sound {SOUND}', { SOUND: 'pop' }),
@@ -75,6 +80,7 @@ export const BLOCK_DEFS: BlockDef[] = [
   d('sound_stopallsounds', 'Sound', 'stack', 'stop all sounds'),
   d('sound_changevolumeby', 'Sound', 'stack', 'change volume by {VOLUME}', { VOLUME: -10 }),
   d('sound_setvolumeto', 'Sound', 'stack', 'set volume to {VOLUME} %', { VOLUME: 100 }),
+  d('sound_volume', 'Sound', 'reporter', 'volume'),
 
   // ── Control ─────────────────────────────────────────
   d('control_wait', 'Control', 'stack', 'wait {SECS} seconds', { SECS: 1 }),
@@ -126,6 +132,7 @@ export const BLOCK_DEFS: BlockDef[] = [
   d('operator_mathop', 'Operators', 'reporter', '{OPERATOR} of {NUM}', { OPERATOR: 'abs', NUM: 0 }),
 
   // ── Variables ───────────────────────────────────────
+  d('data_variable', 'Variables', 'reporter', '{VARIABLE}', { VARIABLE: 'score' }),
   d('data_setvariableto', 'Variables', 'stack', 'set {VARIABLE} to {VALUE}', { VARIABLE: 'score', VALUE: 0 }),
   d('data_changevariableby', 'Variables', 'stack', 'change {VARIABLE} by {VALUE}', { VARIABLE: 'score', VALUE: 1 }),
   d('data_showvariable', 'Variables', 'stack', 'show variable {VARIABLE}', { VARIABLE: 'score' }),
