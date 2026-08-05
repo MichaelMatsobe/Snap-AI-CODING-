@@ -60,3 +60,32 @@ export async function aiChat(
 
   return res.json();
 }
+
+export async function listRemoteProjects(): Promise<
+  Array<{ id: string; name: string; updatedAt: string }>
+> {
+  const res = await fetch(`${BASE}/projects`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.projects || [];
+}
+
+export async function saveRemoteProject(
+  id: string,
+  name: string,
+  data: unknown
+): Promise<void> {
+  const res = await fetch(`${BASE}/projects/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, data }),
+  });
+  if (!res.ok) throw new Error('Save failed');
+}
+
+export async function loadRemoteProject(id: string): Promise<unknown | null> {
+  const res = await fetch(`${BASE}/projects/${id}`);
+  if (!res.ok) return null;
+  const row = await res.json();
+  return row.data ?? null;
+}

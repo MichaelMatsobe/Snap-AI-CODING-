@@ -1,106 +1,95 @@
 # Snap! Technical Atelier
 
-Professional-grade **visual programming IDE** with a **free multi-provider AI coding assistant**.
+Professional **visual programming IDE** (Snap!/Scratch-style) with a live **block runtime**, **project save/load**, and a **free multi-provider AI** assistant.
 
-Built for commercial development: React + Vite frontend, Express API, automatic AI failover with no mandatory paid keys.
+## What’s included
 
-## Features
-
-- Snap!/Scratch-style block IDE UI (palette, stage, sprites, inspector)
-- **Snap! AI** chat assistant embedded in the IDE
-- Free AI chain (no hard quotas on the primary path):
-  1. **Pollinations** — no API key
-  2. **Ollama** — local, unlimited
-  3. **Groq** free tier (optional key)
-  4. **OpenRouter** free models (optional key)
-  5. **Custom** OpenAI-compatible endpoint
-- Health endpoint + live status in the UI
-- Production mode serves the Vite build from the same server
+| Layer | Capability |
+|--------|------------|
+| **Block engine** | Drag from palette → canvas, snap stacks & C-block bodies, edit fields, double-click delete |
+| **Stage VM** | Green flag / pause / stop / turbo; Motion, Control, Looks, Variables, Sound opcodes |
+| **Persistence** | Autosave to `localStorage` + optional `PUT /api/projects/:id` on server |
+| **AI** | Pollinations (no key) → Ollama → Groq → OpenRouter → custom |
+| **Deploy** | Dockerfile, Railway, Fly.io |
 
 ## Quick start
 
 ```bash
-# clone
 git clone https://github.com/MichaelMatsobe/Snap-AI-CODING-.git
 cd Snap-AI-CODING-
-
-# install
 npm install
-
-# env (optional — Pollinations works with zero config)
-cp .env.example .env
-
-# development (API on :3001, Vite on :3000 with /api proxy)
+cp .env.example .env   # optional
 npm run dev
 ```
 
 Open **http://localhost:3000**
 
-### Scripts
+1. Drag blocks onto the workspace (demo project already has a bounce script).
+2. Press the **green flag** on the stage — the rocket should move and bounce.
+3. **Save** stores locally and to the API when online.
 
-| Command        | Description                          |
-|----------------|--------------------------------------|
-| `npm run dev`  | API + client concurrently            |
-| `npm run client` | Vite only                          |
-| `npm run server` | API only (`tsx watch`)             |
-| `npm run build`  | Production frontend build          |
-| `npm start`      | Production: serve `dist` + API     |
-| `npm run lint`   | Typecheck                          |
+## Scripts
 
-## AI setup
-
-**Zero-config:** the server calls [text.pollinations.ai](https://text.pollinations.ai) first. No key required.
-
-**Unlimited local:** install [Ollama](https://ollama.com), pull a model, leave defaults:
-
-```bash
-ollama pull llama3.2
-```
-
-**Optional keys** in `.env` for higher throughput:
-
-- `GROQ_API_KEY` — https://console.groq.com
-- `OPENROUTER_API_KEY` — https://openrouter.ai (prefer `:free` models)
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | API `:3001` + Vite `:3000` |
+| `npm run build` | Production frontend |
+| `npm start` | Serve `dist` + API (production) |
+| `npm run lint` | Typecheck |
 
 ## API
 
-| Method | Path               | Description                |
-|--------|--------------------|----------------------------|
-| GET    | `/api/health`      | Liveness                   |
-| GET    | `/api/ai/providers`| Provider availability      |
-| POST   | `/api/ai/chat`     | Chat completion (failover) |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Health |
+| GET/POST | `/api/ai/*` | Providers + chat |
+| GET | `/api/projects` | List |
+| GET/PUT/DELETE | `/api/projects/:id` | Load / save / delete |
 
-Example:
+## Deploy
+
+### Railway
 
 ```bash
-curl -s http://localhost:3001/api/health
-curl -s -X POST http://localhost:3001/api/ai/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"messages":[{"role":"user","content":"Explain the move steps block"}]}'
+# Connect the GitHub repo in Railway UI, or:
+npm i -g @railway/cli && railway login && railway init && railway up
 ```
+
+Uses `Dockerfile` + `railway.toml` (health check `/api/health`).
+
+### Fly.io
+
+```bash
+fly launch   # uses fly.toml
+fly deploy
+```
+
+### Docker local
+
+```bash
+docker build -t snap-atelier .
+docker run -p 3001:3001 -e NODE_ENV=production snap-atelier
+# → http://localhost:3001
+```
+
+### Vercel note
+
+The app is a **single Node server** (Express + static). Prefer Railway/Fly/Render. For Vercel you’d need to split API into serverless functions; not configured by default.
 
 ## Project layout
 
 ```
-src/
-  App.tsx                 # IDE shell
-  components/AiAssistant.tsx
-  lib/api.ts              # Frontend API client
-server/
-  index.ts                # Express app
-  ai/providers.ts         # Free provider chain
-  ai/chat.ts              # Failover logic
-  ai/types.ts
+src/engine/     types, block defs, VM, project I/O, script graph
+src/components/ Workspace, Stage, BlockView, AiAssistant
+server/         Express, AI providers, project store
 ```
 
-## Commercial readiness notes
+## Runtime notes
 
-- Environment-based config; secrets never committed (`.env` in `.gitignore`)
-- CORS configurable; production can serve static + API on one port
-- Provider failover so a single free endpoint outage does not break the product
-- TypeScript strict mode; `npm run lint` for CI
-
-Next product milestones: real block drag-and-drop runtime, project persistence, multiplayer, and authenticated workspaces.
+- Coordinates: Scratch-like, center origin, stage 480×360.
+- `control_if` currently tests **touching stage edge**.
+- Forever/repeat use a cooperative frame loop (`requestAnimationFrame`).
+- Server project store is file-backed under `data/` (mount a volume in production for durability).
 
 ## License
 
