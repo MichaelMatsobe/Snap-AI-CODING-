@@ -1,95 +1,67 @@
 # Snap! Technical Atelier
 
-Professional **visual programming IDE** (Snap!/Scratch-style) with a live **block runtime**, **project save/load**, and a **free multi-provider AI** assistant.
+Professional **visual programming IDE** with a live **Scratch/Snap!-style runtime**, **costume editor**, **cloning**, **AI/ML blocks**, and an assistant that **builds real block scripts** from natural language.
 
-## What’s included
-
-| Layer | Capability |
-|--------|------------|
-| **Block engine** | Drag from palette → canvas, snap stacks & C-block bodies, edit fields, double-click delete |
-| **Stage VM** | Green flag / pause / stop / turbo; Motion, Control, Looks, Variables, Sound opcodes |
-| **Persistence** | Autosave to `localStorage` + optional `PUT /api/projects/:id` on server |
-| **AI** | Pollinations (no key) → Ollama → Groq → OpenRouter → custom |
-| **Deploy** | Dockerfile, Railway, Fly.io |
-
-## Quick start
+## Run
 
 ```bash
-git clone https://github.com/MichaelMatsobe/Snap-AI-CODING-.git
-cd Snap-AI-CODING-
-npm install
-cp .env.example .env   # optional
-npm run dev
+git pull && npm install && npm run dev
 ```
 
-Open **http://localhost:3000**
+Open http://localhost:3000 — press the **green flag**, try **AI → “Build spin forever”**.
 
-1. Drag blocks onto the workspace (demo project already has a bounce script).
-2. Press the **green flag** on the stage — the rocket should move and bounce.
-3. **Save** stores locally and to the API when online.
+## Block library
 
-## Scripts
+Categories: **Motion, Looks, Sound, Events, Control, Sensing, Operators, Variables, Lists, Pen, AI, ML**
 
-| Command | Purpose |
-|---------|---------|
-| `npm run dev` | API `:3001` + Vite `:3000` |
-| `npm run build` | Production frontend |
-| `npm start` | Serve `dist` + API (production) |
-| `npm run lint` | Typecheck |
+Includes Scratch 3-inspired opcodes plus:
 
-## API
+| AI | ML / Vision |
+|----|-------------|
+| `ai_ask` / `ai_complete` | `ml_classify_image` |
+| `ai_classify_text` | `ml_describe_scene` |
+| `ai_summarize` | `ml_detect_objects` |
+| `ai_build_script` | `ml_webcam_label` |
+| | `ml_similarity` / `ml_predict_number` |
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Health |
-| GET/POST | `/api/ai/*` | Providers + chat |
-| GET | `/api/projects` | List |
-| GET/PUT/DELETE | `/api/projects/:id` | Load / save / delete |
+AI/ML stack blocks call the free multi-provider backend (Pollinations → Ollama → …) and write results into variables/lists.
+
+## Runtime features
+
+- **Drag-and-drop** palette → canvas, stack + C-block bodies
+- **Green flag / pause / stop / turbo**
+- **Cloning**: `create clone of`, `when I start as a clone`, `delete this clone`
+- **Broadcast** receive/send
+- **Lists**, **pen** trails, **costumes** (switch / next)
+- **Costume editor**: brush/eraser, save as data-URL costume
+- **Key hats** (keyboard events)
+- **Project autosave** (localStorage) + `PUT /api/projects/:id`
+
+## AI builds blocks
+
+In the AI panel, say e.g. *“Build a script that spins forever”*.
+
+1. Model is prompted to return JSON block graphs.
+2. Parser injects a real stack onto the **active sprite**.
+3. If the API is offline, a **heuristic builder** still places a sensible stack.
 
 ## Deploy
 
-### Railway
+`Dockerfile`, `railway.toml`, `fly.toml` — see earlier README notes. Production: `npm run build && npm start`.
 
-```bash
-# Connect the GitHub repo in Railway UI, or:
-npm i -g @railway/cli && railway login && railway init && railway up
-```
-
-Uses `Dockerfile` + `railway.toml` (health check `/api/health`).
-
-### Fly.io
-
-```bash
-fly launch   # uses fly.toml
-fly deploy
-```
-
-### Docker local
-
-```bash
-docker build -t snap-atelier .
-docker run -p 3001:3001 -e NODE_ENV=production snap-atelier
-# → http://localhost:3001
-```
-
-### Vercel note
-
-The app is a **single Node server** (Express + static). Prefer Railway/Fly/Render. For Vercel you’d need to split API into serverless functions; not configured by default.
-
-## Project layout
+## Layout
 
 ```
-src/engine/     types, block defs, VM, project I/O, script graph
-src/components/ Workspace, Stage, BlockView, AiAssistant
+src/engine/     blocks, VM, project, scriptBuilder
+src/components/ Workspace, Stage, CostumeEditor, AiAssistant
 server/         Express, AI providers, project store
 ```
 
-## Runtime notes
+## Limits (honest)
 
-- Coordinates: Scratch-like, center origin, stage 480×360.
-- `control_if` currently tests **touching stage edge**.
-- Forever/repeat use a cooperative frame loop (`requestAnimationFrame`).
-- Server project store is file-backed under `data/` (mount a volume in production for durability).
+- Boolean/reporter blocks are palette-visible; conditions in `if` are **string expressions** (e.g. `touching edge`, `score > 10`), not nested reporter plugs.
+- Webcam vision uses AI description of the stage, not a local TensorFlow model (plug-in ready via `ml_*` opcodes).
+- Not every Scratch extension (video sensing hardware, MIDI, etc.) is emulated.
 
 ## License
 
