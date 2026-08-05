@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import type { BlockInstance, Costume, Project, SpriteState } from './types';
+import { getDef } from './blocks';
 
 const ROCKET =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuCqK_ml0ZsYv6TbySRZhI-by2OfLZhWNtz6sRnwUnDmjRinL5cDunJR-HEyO4bIMIS-Mvj1Ux44i_TOvTlN6oQVH6g5jkHmBu-pQlqbI4hruhahna6Gaulazi49JpwEhorFPerAzXP2PS6w5XviucVEpAB8TC_PsGreQK4WS-PZkGspH9Or-RG7x_ZblbHRCmQKbY13tu23CDLeo8lSHxcgHC3TUjVim0g_R7HAdHqPDFlRzDptCNFOSk1EmusSjZEyhNmlS2cll0zH';
@@ -101,7 +102,6 @@ export function createDefaultProject(): Project {
 }
 
 export function newBlockFromOpcode(opcode: string): BlockInstance {
-  const { getDef } = require('./blocks') as typeof import('./blocks');
   const def = getDef(opcode);
   return block(opcode, { ...(def?.fields || {}) });
 }
