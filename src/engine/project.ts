@@ -91,17 +91,7 @@ export function createDefaultProject(): Project {
   };
 }
 
-export function cloneBlockFromDef(
-  opcode: string,
-  fields?: Record<string, string | number>
-): BlockInstance {
-  const { getDef } = require('./blocks') as typeof import('./blocks');
-  const def = getDef(opcode);
-  return block(opcode, { ...(def?.fields || {}), ...fields });
-}
-
 export function newBlockFromOpcode(opcode: string): BlockInstance {
-  // inline to avoid require issues
   const defaults: Record<string, Record<string, string | number>> = {
     motion_movesteps: { STEPS: 10 },
     motion_turnright: { DEGREES: 15 },
