@@ -1,6 +1,5 @@
 import type { BlockInstance, SpriteState } from './types';
 
-/** Ordered list of block ids from a root following nextId (not into branches) */
 export function stackFromRoot(
   blocks: Record<string, BlockInstance>,
   rootId: string
@@ -16,32 +15,29 @@ export function stackFromRoot(
   return out;
 }
 
-export function detachBlock(
-  sprite: SpriteState,
-  blockId: string
-): void {
-  // remove references pointing to this block as next/branch
+export function detachBlock(sprite: SpriteState, blockId: string): void {
   for (const b of Object.values(sprite.blocks)) {
     if (b.nextId === blockId) b.nextId = null;
     if (b.branchId === blockId) b.branchId = null;
     if (b.branch2Id === blockId) b.branch2Id = null;
+    if (b.inputs) {
+      for (const [k, inp] of Object.entries(b.inputs)) {
+        if (inp.kind === 'block' && inp.blockId === blockId) {
+          delete b.inputs[k];
+        }
+      }
+    }
   }
   sprite.scriptRoots = sprite.scriptRoots.filter((id) => id !== blockId);
 }
 
-export function attachNext(
-  sprite: SpriteState,
-  parentId: string,
-  childId: string
-): void {
+export function attachNext(sprite: SpriteState, parentId: string, childId: string): void {
   detachBlock(sprite, childId);
   const parent = sprite.blocks[parentId];
   const child = sprite.blocks[childId];
   if (!parent || !child) return;
-  // insert: parent -> child -> oldNext
   const oldNext = parent.nextId;
   parent.nextId = childId;
-  // find end of child stack
   let end = child;
   const seen = new Set<string>();
   while (end.nextId && !seen.has(end.nextId)) {
@@ -52,11 +48,7 @@ export function attachNext(
   sprite.scriptRoots = sprite.scriptRoots.filter((id) => id !== childId);
 }
 
-export function attachBranch(
-  sprite: SpriteState,
-  parentId: string,
-  childId: string
-): void {
+export function attachBranch(sprite: SpriteState, parentId: string, childId: string): void {
   detachBlock(sprite, childId);
   const parent = sprite.blocks[parentId];
   if (!parent) return;
@@ -64,12 +56,7 @@ export function attachBranch(
   sprite.scriptRoots = sprite.scriptRoots.filter((id) => id !== childId);
 }
 
-export function placeAsRoot(
-  sprite: SpriteState,
-  blockId: string,
-  x: number,
-  y: number
-): void {
+export function placeAsRoot(sprite: SpriteState, blockId: string, x: number, y: number): void {
   detachBlock(sprite, blockId);
   const b = sprite.blocks[blockId];
   if (!b) return;
@@ -88,6 +75,11 @@ export function deleteBlockCascade(sprite: SpriteState, blockId: string): void {
     walk(b.nextId);
     walk(b.branchId);
     walk(b.branch2Id);
+    if (b.inputs) {
+      for (const inp of Object.values(b.inputs)) {
+        if (inp.kind === 'block') walk(inp.blockId);
+      }
+    }
   };
   walk(blockId);
   detachBlock(sprite, blockId);

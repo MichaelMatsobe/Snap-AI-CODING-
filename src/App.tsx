@@ -1,5 +1,5 @@
 /**
- * Snap! Technical Atelier — full runtime IDE
+ * Snap! Technical Atelier — full runtime IDE v1.3
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -26,6 +26,8 @@ import { Workspace } from './components/Workspace';
 import { Stage } from './components/Stage';
 import { PaletteBlock } from './components/BlockView';
 import { CostumeEditor } from './components/CostumeEditor';
+import { ImportSb3Button } from './components/ImportSb3Button';
+import { WebcamPanel } from './components/WebcamPanel';
 import { healthCheck, saveRemoteProject, aiChat } from './lib/api';
 import {
   createDefaultProject,
@@ -36,6 +38,7 @@ import {
 import { ALL_CATEGORIES, blocksForCategory } from './engine/blocks';
 import type { CategoryId, Costume, Project, SpriteState, VmSnapshot } from './engine/types';
 import { StageVM } from './engine/vm';
+import { detectFromWebcam, topLabel } from './engine/vision';
 
 export default function App() {
   const [project, setProject] = useState<Project>(() => loadProjectLocal() || createDefaultProject());
@@ -47,6 +50,7 @@ export default function App() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [costumeOpen, setCostumeOpen] = useState(false);
   const [editCostume, setEditCostume] = useState<Costume | null>(null);
+  const [visionLabels, setVisionLabels] = useState<string[]>([]);
   const vmRef = useRef<StageVM | null>(null);
 
   useEffect(() => {
@@ -55,6 +59,16 @@ export default function App() {
       const r = await aiChat([{ role: 'user', content: prompt }]);
       return r.content;
     });
+    // Vision scan hook used by ml_webcam_label opcode path
+    (vm as unknown as { runVisionScan?: () => Promise<string[]> }).runVisionScan = async () => {
+      const dets = await detectFromWebcam();
+      const labels = dets.map((d) => d.class);
+      const p = vm.getProject();
+      p.variables['vision'] = topLabel(dets);
+      p.lists['objects'] = labels;
+      setVisionLabels(labels);
+      return labels;
+    };
     vmRef.current = vm;
     const unsub = vm.subscribe(setSnapshot);
     return () => {
@@ -70,7 +84,10 @@ export default function App() {
       const r = await aiChat([{ role: 'user', content: prompt }]);
       return r.content;
     });
-  }, [project]);
+    if (visionLabels.length) {
+      (vmRef.current as unknown as { setVisionLabels?: (l: string[]) => void }).setVisionLabels?.(visionLabels);
+    }
+  }, [project, visionLabels]);
 
   useEffect(() => {
     vmRef.current?.setTurbo(turbo);
@@ -175,12 +192,18 @@ export default function App() {
             </span>
           </div>
           <input
-            className="bg-transparent text-sm font-semibold text-zinc-300 border-b border-transparent focus:border-primary/40 outline-none px-1 w-48"
+            className="bg-transparent text-sm font-semibold text-zinc-300 border-b border-transparent focus:border-primary/40 outline-none px-1 w-40"
             value={project.name}
             onChange={(e) => setProject((p) => ({ ...p, name: e.target.value }))}
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <ImportSb3Button
+            onImported={(p) => {
+              vmRef.current?.stop();
+              setProject(p);
+            }}
+          />
           <button onClick={() => void saveAll()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-surface-container border border-white/10">
             <Save className="w-3.5 h-3.5" />
             {savedFlash ? 'Saved' : 'Save'}
@@ -283,7 +306,21 @@ export default function App() {
               <Stage project={project} snapshot={snapshot} />
             </div>
 
-            <div className="flex-1 border-t border-background overflow-y-auto custom-scrollbar p-3">
+            <div className="flex-1 border-t border-background overflow-y-auto custom-scrollbar p-3 space-y-3">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Webcam · COCO-SSD</div>
+                <WebcamPanel
+                  onLabels={(labels, top) => {
+                    setVisionLabels(labels);
+                    setProject((p) => ({
+                      ...p,
+                      variables: { ...p.variables, vision: top },
+                      lists: { ...p.lists, objects: labels },
+                    }));
+                  }}
+                />
+              </div>
+
               <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Sprites</div>
               <div className="grid grid-cols-3 gap-2">
                 {project.sprites
@@ -304,7 +341,7 @@ export default function App() {
                   ))}
               </div>
 
-              <div className="mt-3 text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Costumes</div>
+              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Costumes</div>
               <div className="flex flex-wrap gap-2">
                 {(active.costumes || []).map((c, i) => (
                   <button
@@ -338,7 +375,9 @@ export default function App() {
                   + New
                 </button>
               </div>
-              <p className="mt-2 text-[10px] text-zinc-600">Double-click costume to edit · AI can inject scripts</p>
+              <p className="text-[10px] text-zinc-600">
+                Drop reporters into slots · Import .sb3 · Webcam TF.js · AI builds scripts
+              </p>
             </div>
           </section>
         </main>
@@ -354,19 +393,15 @@ export default function App() {
             {apiOnline ? <Wifi className="w-3 h-3 text-secondary" /> : <WifiOff className="w-3 h-3 text-error" />}
             {apiOnline ? 'API' : 'offline'}
           </span>
+          {visionLabels[0] && <span className="text-primary normal-case">vision: {visionLabels[0]}</span>}
         </div>
         <div className="flex items-center gap-2">
           <Code className="w-3 h-3" />
-          v1.2.0-full-runtime
+          v1.3.0
         </div>
       </footer>
 
-      <AiAssistant
-        open={aiOpen}
-        onClose={() => setAiOpen(false)}
-        activeSprite={active}
-        onInjectSprite={updateSprite}
-      />
+      <AiAssistant open={aiOpen} onClose={() => setAiOpen(false)} activeSprite={active} onInjectSprite={updateSprite} />
       <CostumeEditor open={costumeOpen} onClose={() => setCostumeOpen(false)} costume={editCostume} onSave={saveCostume} />
     </div>
   );
