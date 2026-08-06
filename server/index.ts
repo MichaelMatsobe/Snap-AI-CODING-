@@ -49,7 +49,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'snap-ai-coding',
-    version: '1.4.0',
+    version: '1.5.0',
     env: process.env.NODE_ENV || 'development',
     time: new Date().toISOString(),
   });
@@ -204,7 +204,7 @@ if (isProd) {
 }
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n  Snap! Technical Atelier API v1.4.0`);
+  console.log(`\n  Snap! Technical Atelier API v1.5.0`);
   console.log(`  → http://localhost:${PORT}`);
   console.log(`  → env: ${process.env.NODE_ENV || 'development'}\n`);
 });

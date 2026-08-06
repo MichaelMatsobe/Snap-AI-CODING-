@@ -2,17 +2,18 @@
 
 A professional visual programming IDE (Scratch / Snap!-style) with a live block interpreter, nested reporter sockets, TensorFlow.js webcam object detection, Scratch `.sb3` import, and a **free multi-provider AI coding assistant** that can build real block scripts from plain English.
 
-> **v1.4.0** — React 19 + Vite + Express · Apache-2.0
+> **v1.5.0** — React 19 + Vite + Express · Apache-2.0
 
-![Stack](https://img.shields.io/badge/React_19-Vite_6-7cd2f1) ![AI](https://img.shields.io/badge/AI-Pollinations_·_Ollama_·_Groq_·_OpenRouter-88db60)
+![Stack](https://img.shields.io/badge/React_19-Vite_6-7cd2f1) ![AI](https://img.shields.io/badge/AI-Local_·_Pollinations_·_Ollama_·_Groq_·_OpenRouter-88db60)
 
 ---
 
 ## What it is
 
-- **Block IDE** — drag Motion / Looks / Sound / Events / Control / Sensing / Operators / Variables / Lists / Pen / AI / ML blocks onto the canvas, snap them into stacks, C-bodies (`repeat`, `forever`, `if/else`) and nested reporter sockets.
+- **Block IDE** — drag Motion / Looks / Sound / Events / Control / Sensing / Operators / Variables / Lists / Pen / AI / ML blocks onto the canvas, snap them into stacks, C-bodies (`repeat`, `forever`, `if/else`) and nested reporter sockets. On touch screens, blocks are dragged with your finger (pointer events) — drag to reposition, or drop onto the **trash bin** (bottom-right) to delete. Desktop keeps native drag & drop.
+- **Undo / redo** — toolbar buttons (↶ ↷) and `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` restore any block edit, AI injection, costume change or import (last 100 steps).
 - **Live VM** — a TypeScript interpreter (`src/engine/vm.ts` + `src/engine/eval.ts`) runs your project: clones, lists, pen trails, variables, broadcasts, key/sprite-click events, timers, and Turbo mode.
-- **AI assistant** — chat in the right panel. Say *“build a script that spins forever”* and real blocks are injected onto the active sprite. Free failover chain: **Pollinations → Ollama → Groq → OpenRouter → custom endpoint**.
+- **AI assistant** — chat in the right panel. Say *“build a script that spins forever”* and real blocks are injected onto the active sprite. Free failover chain: **in-browser Local AI → Pollinations → Ollama → Groq → OpenRouter → custom endpoint**. **Local AI** runs a small open-source LLM (Qwen2.5-0.5B / SmolLM2-360M) entirely on your device via Transformers.js — like Ollama but with no install, no API key, no tokens and no quotas, and it keeps working offline once the model is cached (great for the installed PWA).
 - **Computer vision** — start the webcam and run **COCO-SSD** (TensorFlow.js, in-browser) to write detections into the `vision` variable and `objects` list, or use the `webcam label` ML block.
 - **Scratch import** — open `.sb3` files (JSZip): sprites, stage scripts, variables, lists and costumes are converted.
 - **Costume editor** — paint 128×128 costumes (brush / eraser / color picker).
@@ -56,7 +57,7 @@ Copy `.env.example` to `.env` (all values optional).
 | `CUSTOM_AI_BASE_URL` / `CUSTOM_AI_API_KEY` / `CUSTOM_AI_MODEL` | Any OpenAI-compatible endpoint | — |
 | `ENABLE_TERMINAL` | In-app terminal tool (`1` enabled, `0` disables the endpoint) | `1` |
 
-The provider failover is fully automatic: each request walks the chain and uses the first provider that responds.
+The provider failover is fully automatic: each request walks the chain and uses the first provider that responds. **Local AI needs no environment variables** — it runs client-side; open **AI Settings (⚙️) → Local AI** to pick a model, watch the download progress, and set it to *Always* for fully offline, zero-quota use.
 
 ## Scripts
 
@@ -125,19 +126,22 @@ Three supported targets (all run the Express server that also serves `dist/`):
 | Variable / motion / size reporters | ✅ |
 | Boolean hexagon sockets | ✅ |
 | Clones, pen, AI/ML blocks | ✅ |
-| Free AI failover (Pollinations → Ollama → Groq → OpenRouter → custom) | ✅ |
+| Free AI failover (Local in-browser → Pollinations → Ollama → Groq → OpenRouter → custom) | ✅ |
+| 100% free & tokenless in-browser Local AI (no key, no quotas, offline) | ✅ |
 | `when this sprite clicked` / `when key pressed` start from idle | ✅ |
 | AI provider status panel (⚙️ in header) | ✅ |
 | In-app `ask and wait` dialog (no `window.prompt`) | ✅ |
 | Imported Scratch stage backdrops (full-stage render + stage scripts) | ✅ |
 | PWA: installable standalone app + offline (manifest + service worker) | ✅ |
 | Mobile layout with Blocks / Stage tabs and tap-to-place blocks | ✅ |
+| Touch block dragging (pointer events) + trash-bin delete | ✅ |
+| Undo / redo (100-step project history, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) | ✅ |
 | Background terminal (xterm.js) driven by the AI assistant (`/cmd` + intents) | ✅ |
 
 ## Known limitations
 
-- Magnetic snap geometry and a full undo stack are not implemented (blocks attach via drop zones).
-- On touch devices, dragging blocks to *snap them into stacks* is not implemented — use tap-to-place and field editing instead; stack building via drag is desktop-only.
+- Magnetic snap geometry is not implemented (blocks attach via drop zones); snap-in-stack dragging is desktop-only — touch devices reposition blocks freely and delete via the trash bin, but attach stacks via tap-to-place / the AI.
+- The undo stack covers structural edits (blocks, scripts, costumes, imports); runtime state (variables changing while a script runs) is not part of history.
 - Export *to* `.sb3` is not implemented.
 - Layer ordering (`go to front/back` layer) and real sound synthesis are not modeled — sound blocks show a status note instead of audio.
 - Hardware extensions (MIDI, LEGO, …) are out of scope.

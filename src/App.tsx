@@ -22,6 +22,8 @@ import {
   Palette,
   SquareTerminal,
   X,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
 import { AiAssistant } from './components/AiAssistant';
 import { TerminalDrawer } from './components/TerminalDrawer';
@@ -65,6 +67,48 @@ export default function App() {
   // Background terminal console (AI-driven + direct input).
   const [consoleOpen, setConsoleOpen] = useState(false);
   const vmRef = useRef<StageVM | null>(null);
+
+  // ── Undo / redo history ──────────────────────────────────────────────────
+  // Snapshot the previous project before every structural mutation; undo/redo
+  // swap whole-project snapshots (capped to keep memory bounded).
+  const [histTick, setHistTick] = useState(0);
+  const pastRef = useRef<Project[]>([]);
+  const futureRef = useRef<Project[]>([]);
+  const projectRef = useRef(project);
+  projectRef.current = project;
+
+  const commit = useCallback((next: Project | ((p: Project) => Project)) => {
+    const prev = projectRef.current;
+    const resolved = typeof next === 'function' ? (next as (p: Project) => Project)(prev) : next;
+    if (resolved === prev) return;
+    pastRef.current.push(prev);
+    if (pastRef.current.length > 100) pastRef.current.shift();
+    futureRef.current = [];
+    projectRef.current = resolved;
+    setProject(resolved);
+    setHistTick((t) => t + 1);
+  }, []);
+
+  const undo = useCallback(() => {
+    const prev = pastRef.current.pop();
+    if (!prev) return;
+    futureRef.current.push(projectRef.current);
+    projectRef.current = prev;
+    setProject(prev);
+    setHistTick((t) => t + 1);
+  }, []);
+
+  const redo = useCallback(() => {
+    const next = futureRef.current.pop();
+    if (!next) return;
+    pastRef.current.push(projectRef.current);
+    projectRef.current = next;
+    setProject(next);
+    setHistTick((t) => t + 1);
+  }, []);
+
+  const canUndo = pastRef.current.length > 0;
+  const canRedo = futureRef.current.length > 0;
 
   useEffect(() => {
     const vm = new StageVM(project);
@@ -146,6 +190,21 @@ export default function App() {
       ) {
         return;
       }
+      // Undo / redo shortcuts (Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y).
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === 'z') {
+          e.preventDefault();
+          if (e.shiftKey) redo();
+          else undo();
+          return;
+        }
+        if (k === 'y') {
+          e.preventDefault();
+          redo();
+          return;
+        }
+      }
       vmRef.current?.keyPressed(e.key === ' ' ? 'space' : e.key);
     };
     const onUp = (e: KeyboardEvent) => vmRef.current?.keyReleased(e.key === ' ' ? 'space' : e.key);
@@ -155,7 +214,7 @@ export default function App() {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onUp);
     };
-  }, []);
+  }, [undo, redo]);
 
   useEffect(() => {
     let c = false;
@@ -182,12 +241,15 @@ export default function App() {
 
   const active = useMemo(() => getActiveSprite(project), [project]);
 
-  const updateSprite = useCallback((sprite: SpriteState) => {
-    setProject((p) => ({
-      ...p,
-      sprites: p.sprites.map((s) => (s.id === sprite.id ? sprite : s)),
-    }));
-  }, []);
+  const updateSprite = useCallback(
+    (sprite: SpriteState) => {
+      commit((p) => ({
+        ...p,
+        sprites: p.sprites.map((s) => (s.id === sprite.id ? sprite : s)),
+      }));
+    },
+    [commit]
+  );
 
   const saveAll = async () => {
     saveProjectLocal(project);
@@ -202,7 +264,7 @@ export default function App() {
 
   const newProject = () => {
     vmRef.current?.stop();
-    setProject(createDefaultProject());
+    commit(createDefaultProject());
   };
 
   const onPaletteDrag = (e: React.DragEvent, opcode: string) => {
@@ -211,7 +273,7 @@ export default function App() {
   };
 
   const saveCostume = (c: Costume) => {
-    setProject((p) => {
+    commit((p) => {
       const sprites = p.sprites.map((s) => {
         if (s.id !== p.activeSpriteId) return s;
         const costumes = [...(s.costumes || [])];
@@ -256,13 +318,48 @@ export default function App() {
           <ImportSb3Button
             onImported={(p) => {
               vmRef.current?.stop();
-              setProject(p);
+              commit(p);
             }}
           />
           <button onClick={() => void saveAll()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-surface-container border border-white/10">
             <Save className="w-3.5 h-3.5" />
             {savedFlash ? 'Saved' : 'Save'}
           </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              title="Undo (Ctrl+Z)"
+              className="p-1.5 rounded-md bg-surface-container border border-white/10 text-zinc-300 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-300"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              title="Redo (Ctrl+Shift+Z / Ctrl+Y)"
+              className="p-1.5 rounded-md bg-surface-container border border-white/10 text-zinc-300 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-300"
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          {/* Run controls — always visible, incl. mobile Blocks view */}
+          <div className="flex items-center gap-1 rounded-full bg-surface-container border border-white/10 px-1 py-0.5">
+            <button
+              onClick={() => vmRef.current?.greenFlag()}
+              title="Green flag — run all scripts"
+              className="w-8 h-8 flex items-center justify-center rounded-full text-secondary hover:bg-secondary/10 active:scale-90 transition-transform"
+            >
+              <Play className="w-4 h-4 fill-current" />
+            </button>
+            <button
+              onClick={() => vmRef.current?.stop()}
+              title="Stop all scripts"
+              className="w-8 h-8 flex items-center justify-center rounded-full text-error hover:bg-error/10 active:scale-90 transition-transform"
+            >
+              <Square className="w-4 h-4 fill-current" />
+            </button>
+          </div>
           <button onClick={newProject} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-surface-container border border-white/10">
             <FolderOpen className="w-3.5 h-3.5" />
             New
@@ -536,7 +633,7 @@ export default function App() {
           </button>
           <span className="flex items-center gap-2 pl-1">
             <Code className="w-3 h-3" />
-            v1.4.0
+            v1.5.0
           </span>
         </div>
       </footer>

@@ -1,7 +1,7 @@
 {
   "name": "snap-ai-coding",
   "private": true,
-  "version": "1.4.0",
+  "version": "1.5.0",
   "type": "module",
   "description": "Snap! Technical Atelier — visual programming IDE with free multi-provider AI",
   "scripts": {
@@ -16,6 +16,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
     "@tailwindcss/vite": "^4.1.14",
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow/tfjs": "^4.22.0",

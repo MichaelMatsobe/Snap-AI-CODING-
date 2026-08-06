@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, Sparkles, Loader2, Bot, User, Blocks } from 'lucide-react';
+import { X, Send, Sparkles, Loader2, Bot, User, Blocks, Cpu } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { aiChat, type ChatMessage, type TerminalResult } from '../lib/api';
 import { runAndLog } from '../lib/terminalSession';
@@ -9,6 +9,16 @@ import {
   injectScriptIntoSprite,
   parseAiScript,
 } from '../engine/scriptBuilder';
+import {
+  generateLocalAi,
+  getLocalAiMode,
+  getLocalAiModel,
+  isLocalAiCached,
+  setLocalAiMode,
+  subscribeLocalAi,
+  type LocalAiMode,
+  type LocalAiStatus,
+} from '../engine/localAi';
 import type { SpriteState } from '../engine/types';
 
 interface AiAssistantProps {
@@ -34,8 +44,13 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
   const [lastBuild, setLastBuild] = useState<string | null>(null);
   // Output of the last terminal tool run — fed to the AI on the next request.
   const [toolContext, setToolContext] = useState<string | null>(null);
+  // 100% free & tokenless in-browser AI (runs on this device, no API key).
+  const [localMode, setLocalMode] = useState<LocalAiMode>(getLocalAiMode());
+  const [localStatus, setLocalStatus] = useState<LocalAiStatus>({ state: 'idle' });
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => subscribeLocalAi(setLocalStatus), []);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -49,25 +64,42 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
   // "/cmd <shell>" runs the command verbatim; recognized natural-language
   // intents auto-run a mapped command. Output streams into the background
   // console and is summarized here in chat.
+  //
+  // IMPORTANT: terminal intents are intentionally strict. Messages like
+  // "build a script that…" or "build a calculator" are SCRIPT-BUILDING
+  // requests for the AI — they must never be hijacked into `npm run build`.
   const TOOL_INTENTS: Array<{ test: RegExp; run: string }> = [
     { test: /\bpreview\s+status\b/i, run: 'freebuff-preview status' },
     { test: /\bpreview\s+logs?\b/i, run: 'freebuff-preview logs' },
     { test: /\b(start|launch)\s+(the\s+)?preview\b/i, run: 'freebuff-preview start' },
-    { test: /\bgit\s+(status|log)\b/i, run: 'git status' },
-    { test: /\bgit\s+pull\b/i, run: 'git pull' },
-    { test: /\bgit\s+push\b/i, run: 'git push' },
-    { test: /\b(typecheck|lint)\b/i, run: 'npm run lint' },
-    { test: /\brun\s+tests?\b/i, run: 'npm run lint' },
-    { test: /\bbuild\b/i, run: 'npm run build' },
+    { test: /\bgit\s+(status|log|pull|push)\b/i, run: '' }, // mapped below by verb
+    { test: /\b(typecheck|lint|run\s+tests?)\b/i, run: 'npm run lint' },
+    // "build the project/app/repo" only — a bare "build" must not match.
+    { test: /\b(?:run|start|do)\s+(?:the\s+)?build\b/i, run: 'npm run build' },
+    { test: /\bbuild\s+(?:the\s+)?(?:project|app|application|repo)\b/i, run: 'npm run build' },
   ];
+  // Anything that sounds like building a SNAP script or a program feature is
+  // an AI job, not a terminal job — even if it contains "build". Explicit
+  // terminal phrases ("run build", "build the project") are excluded so they
+  // still map to the build command.
+  function isScriptBuildRequest(text: string): boolean {
+    const terminalBuild =
+      /\b(?:run|start|do)\s+(?:the\s+)?build\b/i.test(text) ||
+      /\bbuild\s+(?:the\s+)?(?:project|app|application|repo)\b/i.test(text);
+    if (terminalBuild) return false;
+    return (
+      /\b(script|blocks?|program|game|app|calculator|project)\b/.test(text) &&
+      /\b(build|create|make|generate)\b/.test(text)
+    );
+  }
 
   function friendlyAiError(err: unknown): string {
     const msg = err instanceof Error ? err.message : 'Request failed';
     if (/all ai providers failed|failed to fetch|networkerror|timed out/i.test(msg)) {
       return (
-        'AI is unavailable right now — the free providers are rate-limited or offline (this is common with ' +
-        "Pollinations' free tier). Heuristic block building still works offline. For reliable AI, add a " +
-        'GROQ_API_KEY or OPENROUTER_API_KEY in AI Settings (⚙️).'
+        'All free online providers are unreachable right now (rate limits / offline — this is common with ' +
+        "Pollinations' free tier). The Local AI mode tries next, and heuristic block building works offline. " +
+        'For the most reliable free AI, switch Local AI to “Always” (⚙️) — it runs entirely on this device with no tokens or quotas.'
       );
     }
     return msg;
@@ -79,6 +111,34 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
       ? `killed (timeout after ${Math.round(r.durationMs / 1000)}s)`
       : `exit ${r.exitCode} · ${(r.durationMs / 1000).toFixed(1)}s`;
     return `🛠 Ran \`${r.command}\` — ${status}${body ? `\n\n${body}` : ''}`;
+  }
+
+  /** Generate a reply fully on-device (offline, no tokens) and inject blocks. */
+  async function runLocalAi(text: string, history: ChatMessage[]): Promise<boolean> {
+    try {
+      const msgs: { role: string; content: string }[] = [
+        {
+          role: 'system',
+          content: `${AI_SCRIPT_SYSTEM}\n\nKeep replies short and direct. When building a script, output the JSON block per the schema.`,
+        },
+        ...history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+      ];
+      const content = await generateLocalAi(msgs);
+      setMessages((prev) => [...prev, { role: 'assistant', content }]);
+      setLastProvider(`local · ${getLocalAiModel().split('/').pop()} (browser)`);
+      tryInject(content, text);
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Local AI failed';
+      setError(
+        /failed to fetch|dynamically imported|loading chunk|importing|networkerror|timed out|abort/i.test(
+          msg
+        )
+          ? 'Local AI couldn’t load — it needs a stable connection to download itself the first time, and your link looks very slow right now. It works offline afterwards. Preload it from ⚙️ AI Settings when your connection is better, or switch Local AI off.'
+          : msg
+      );
+      return false;
+    }
   }
 
   function tryInject(raw: string, userPrompt: string): boolean {
@@ -112,9 +172,24 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
     setLastBuild(null);
 
     // Terminal tool first: /cmd verbatim, otherwise matched intents.
+    // Script-building prompts ("build a calculator…") always go to the AI —
+    // never to the terminal, even though they contain the word "build".
     const cmdMatch = text.match(/^\/cmd\s+([\s\S]+)$/);
-    const intent = cmdMatch ? null : TOOL_INTENTS.find((t) => t.test.test(text));
-    const command = (cmdMatch ? cmdMatch[1] : intent?.run)?.trim();
+    const intent =
+      cmdMatch || isScriptBuildRequest(text)
+        ? null
+        : TOOL_INTENTS.find((t) => t.test.test(text));
+    let command = cmdMatch ? cmdMatch[1] : intent?.run;
+    if (!cmdMatch && intent && !command) {
+      // git verb mapping: status/log -> git status, pull -> git pull, etc.
+      command =
+        /\bgit\s+status\b/i.test(text) || /\bgit\s+log\b/i.test(text)
+          ? 'git status'
+          : /\bgit\s+pull\b/i.test(text)
+            ? 'git pull'
+            : 'git push';
+    }
+    command = command?.trim();
     if (command) {
       try {
         const result = await runAndLog(command);
@@ -133,26 +208,37 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
       return;
     }
 
+    const history = next.filter((m) => m.role !== 'system').slice(-12);
+    const system = toolContext
+      ? `${AI_SCRIPT_SYSTEM}\n\nYou can run terminal commands when the user asks (build, lint, git, preview status…). For context, your most recent terminal result was:\n${toolContext}`
+      : AI_SCRIPT_SYSTEM;
     try {
-      const history = next.filter((m) => m.role !== 'system').slice(-12);
-      const system = toolContext
-        ? `${AI_SCRIPT_SYSTEM}\n\nYou can run terminal commands when the user asks (build, lint, git, preview status…). For context, your most recent terminal result was:\n${toolContext}`
-        : AI_SCRIPT_SYSTEM;
-      const result = await aiChat(history, { system });
-      setMessages((prev) => [...prev, { role: 'assistant', content: result.content }]);
-      setLastProvider(`${result.provider} · ${result.model}`);
-      tryInject(result.content, text);
+      if (getLocalAiMode() === 'on') {
+        // User forced the 100% free on-device model (offline, no tokens).
+        await runLocalAi(text, history);
+      } else {
+        const result = await aiChat(history, { system });
+        setMessages((prev) => [...prev, { role: 'assistant', content: result.content }]);
+        setLastProvider(`${result.provider} · ${result.model}`);
+        tryInject(result.content, text);
+      }
     } catch (err) {
-      // offline / API fail — still try heuristic build
-      if (tryInject('', text)) {
+      // Online AI unavailable. Use the free on-device model only when it is
+      // already cached here — a first-time ~100–400 MB download on a slow or
+      // flaky link should be deliberate (Settings → Download model now), not a
+      // silent surprise in the middle of a chat. Otherwise use the offline
+      // heuristic builder, which needs no network at all.
+      const cached = await isLocalAiCached();
+      const localOk = cached ? await runLocalAi(text, history) : false;
+      if (!localOk && tryInject('', text)) {
         setMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
-            content: 'AI is unavailable right now — built a heuristic script from your prompt and placed it on the sprite. Press the green flag ▶ to run it.',
+            content: `AI is unavailable right now — built a heuristic script from your prompt and placed it on the sprite. Press the green flag ▶ to run it.${cached ? '' : ' For real AI that works even offline, preload the free local model from ⚙️ AI Settings.'}`,
           },
         ]);
-      } else {
+      } else if (!localOk) {
         setError(friendlyAiError(err));
       }
     } finally {
@@ -212,6 +298,46 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
                 {q}
               </button>
             ))}
+          </div>
+
+          <div className="px-3 py-2 border-b border-white/5 flex flex-wrap items-center gap-1.5">
+            <Cpu className="w-3.5 h-3.5 text-secondary" />
+            <span className="text-[9px] font-black uppercase tracking-wider text-zinc-500">Local AI</span>
+            <div className="flex rounded-full overflow-hidden border border-secondary/30">
+              {(
+                [
+                  ['auto', 'Auto'],
+                  ['on', 'Always'],
+                  ['off', 'Off'],
+                ] as const
+              ).map(([m, label]) => (
+                <button
+                  key={m}
+                  onClick={() => {
+                    setLocalAiMode(m);
+                    setLocalMode(m);
+                  }}
+                  className={`text-[9px] font-bold px-2 py-0.5 transition-colors ${
+                    localMode === m ? 'bg-secondary/25 text-secondary' : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {localStatus.state === 'loading' && (
+              <span className="text-[9px] text-zinc-400 font-mono">
+                downloading {localStatus.progress.toFixed(0)}%
+              </span>
+            )}
+            {localStatus.state === 'ready' && (
+              <span className="text-[9px] text-secondary font-mono">
+                {localStatus.device === 'webgpu' ? 'GPU' : 'CPU'} ready
+              </span>
+            )}
+            {localStatus.state === 'generating' && (
+              <span className="text-[9px] text-zinc-400 font-mono">thinking…</span>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">

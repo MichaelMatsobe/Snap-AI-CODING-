@@ -179,7 +179,7 @@ export const groq: Provider = {
   },
 };
 
-/** OpenRouter free models */
+/** OpenRouter free models — reliable keyed option; no card needed. */
 export const openrouter: Provider = {
   id: 'openrouter',
   name: 'OpenRouter',
@@ -187,7 +187,9 @@ export const openrouter: Provider = {
   isConfigured: () => Boolean(process.env.OPENROUTER_API_KEY),
   async chat({ messages, temperature = 0.7, max_tokens = 1024 }) {
     const key = process.env.OPENROUTER_API_KEY!;
-    const model = process.env.OPENROUTER_MODEL || 'openrouter/auto';
+    // Default to a known-reliable FREE open model (Llama 3.3 70B Instruct).
+    // Override with OPENROUTER_MODEL for another model.
+    const model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
     return openaiCompatibleChat(
       'https://openrouter.ai/api/v1',
       key,
