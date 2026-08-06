@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, Sparkles, Loader2, Bot, User, Blocks, Cpu } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { aiChat, type ChatMessage, type TerminalResult } from '../lib/api';
-import { runAndLog } from '../lib/terminalSession';
+import { pushTerminal, runAndLog } from '../lib/terminalSession';
 import {
   AI_SCRIPT_SYSTEM,
   heuristicScriptFromPrompt,
@@ -19,6 +19,7 @@ import {
   type LocalAiMode,
   type LocalAiStatus,
 } from '../engine/localAi';
+import { blocksToPython, parsePythonDsl, PYTHON_DSL_SYSTEM } from '../engine/pythonDsl';
 import type { SpriteState } from '../engine/types';
 
 interface AiAssistantProps {
@@ -47,6 +48,15 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
   // 100% free & tokenless in-browser AI (runs on this device, no API key).
   const [localMode, setLocalMode] = useState<LocalAiMode>(getLocalAiMode());
   const [localStatus, setLocalStatus] = useState<LocalAiStatus>({ state: 'idle' });
+  // Python mode: the AI writes a tiny Python-flavoured DSL which is parsed into
+  // blocks (never executed — zero risk), and the block engine does the action.
+  const [pythonMode, setPythonMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('snap.pythonMode') === '1';
+    } catch {
+      return false;
+    }
+  });
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -119,7 +129,9 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
       const msgs: { role: string; content: string }[] = [
         {
           role: 'system',
-          content: `${AI_SCRIPT_SYSTEM}\n\nKeep replies short and direct. When building a script, output the JSON block per the schema.`,
+          content: `${
+            pythonMode ? PYTHON_DSL_SYSTEM : AI_SCRIPT_SYSTEM
+          }\n\nKeep replies short and direct.`,
         },
         ...history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
       ];
@@ -146,9 +158,9 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
     const wantsBuild =
       /\b(build|generate|create|make)\b.*\b(script|blocks?|program)\b/i.test(userPrompt) ||
       /\bbuild\b/i.test(userPrompt);
-    if (!wantsBuild && !parseAiScript(raw)) return false;
+    if (!wantsBuild && !parseAiScript(raw) && !parsePythonDsl(raw)) return false;
 
-    let payload = parseAiScript(raw);
+    let payload = parseAiScript(raw) ?? parsePythonDsl(raw);
     if (!payload) payload = heuristicScriptFromPrompt(userPrompt);
     const copy = structuredClone(activeSprite);
     const root = injectScriptIntoSprite(copy, payload, {
@@ -209,9 +221,10 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
     }
 
     const history = next.filter((m) => m.role !== 'system').slice(-12);
+    const baseSystem = pythonMode ? PYTHON_DSL_SYSTEM : AI_SCRIPT_SYSTEM;
     const system = toolContext
-      ? `${AI_SCRIPT_SYSTEM}\n\nYou can run terminal commands when the user asks (build, lint, git, preview status…). For context, your most recent terminal result was:\n${toolContext}`
-      : AI_SCRIPT_SYSTEM;
+      ? `${baseSystem}\n\nYou can run terminal commands when the user asks (build, lint, git, preview status…). For context, your most recent terminal result was:\n${toolContext}`
+      : baseSystem;
     try {
       if (getLocalAiMode() === 'on') {
         // User forced the 100% free on-device model (offline, no tokens).
@@ -337,6 +350,48 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
             )}
             {localStatus.state === 'generating' && (
               <span className="text-[9px] text-zinc-400 font-mono">thinking…</span>
+            )}
+            <button
+              onClick={() => {
+                const next = !pythonMode;
+                setPythonMode(next);
+                try {
+                  localStorage.setItem('snap.pythonMode', next ? '1' : '0');
+                } catch {
+                  /* storage blocked */
+                }
+              }}
+              title="Python mode: describe it in English → the AI writes Python-flavoured DSL → converted to real blocks (never executed)"
+              className={`text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-full border transition-colors ${
+                pythonMode
+                  ? 'bg-tertiary/25 text-tertiary border-tertiary/40'
+                  : 'text-zinc-500 border-outline-variant/30 hover:text-zinc-300'
+              }`}
+            >
+              Python mode
+            </button>
+            {activeSprite && (
+              <button
+                onClick={() => {
+                  const code = blocksToPython(activeSprite);
+                  if (!code) {
+                    setError('The active sprite has no scripts to show as Python.');
+                    return;
+                  }
+                  pushTerminal('out', code);
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      role: 'assistant',
+                      content: `Here is the active sprite's script as Python (read-only — when you build, Python is converted to real blocks):\n\n\`\`\`python\n${code}\n\`\`\``,
+                    },
+                  ]);
+                }}
+                title="Show the current script as Python in the console + chat"
+                className="text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-full border border-primary/30 text-primary bg-primary/10 hover:bg-primary/20"
+              >
+                Show as Python
+              </button>
             )}
           </div>
 

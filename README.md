@@ -128,6 +128,7 @@ Three supported targets (all run the Express server that also serves `dist/`):
 | Clones, pen, AI/ML blocks | ✅ |
 | Free AI failover (Local in-browser → Pollinations → Ollama → Groq → OpenRouter → custom) | ✅ |
 | 100% free & tokenless in-browser Local AI (no key, no quotas, offline) | ✅ |
+| Python mode: describe in English → AI writes Python-flavoured DSL → parsed into real blocks (never executes code) | ✅ |
 | `when this sprite clicked` / `when key pressed` start from idle | ✅ |
 | AI provider status panel (⚙️ in header) | ✅ |
 | In-app `ask and wait` dialog (no `window.prompt`) | ✅ |
