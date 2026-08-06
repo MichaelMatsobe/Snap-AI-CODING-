@@ -16,6 +16,7 @@ A professional visual programming IDE (Scratch / Snap!-style) with a live block 
 - **Computer vision** — start the webcam and run **COCO-SSD** (TensorFlow.js, in-browser) to write detections into the `vision` variable and `objects` list, or use the `webcam label` ML block.
 - **Scratch import** — open `.sb3` files (JSZip): sprites, stage scripts, variables, lists and costumes are converted.
 - **Costume editor** — paint 128×128 costumes (brush / eraser / color picker).
+- **Background terminal (AI tool)** — a real xterm.js console runs shell commands in the project root. Ask the AI assistant *“build the project”*, *“git status”*, or type `/cmd <command>` in chat and it executes and shows you the output; the console drawer (footer → Console) shows every run.
 
 ## Quick start
 
@@ -53,6 +54,7 @@ Copy `.env.example` to `.env` (all values optional).
 | `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | OpenRouter (use `:free` models) | `openrouter/auto` |
 | `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | Local Ollama (truly unlimited) | `http://127.0.0.1:11434` / `llama3.2` |
 | `CUSTOM_AI_BASE_URL` / `CUSTOM_AI_API_KEY` / `CUSTOM_AI_MODEL` | Any OpenAI-compatible endpoint | — |
+| `ENABLE_TERMINAL` | In-app terminal tool (`1` enabled, `0` disables the endpoint) | `1` |
 
 The provider failover is fully automatic: each request walks the chain and uses the first provider that responds.
 
@@ -100,6 +102,7 @@ server/
 - **Webcam ML** — `vision.ts` lazily loads COCO-SSD; detections land in `vision` / `objects`; `ml_webcam_label` exposes it as a block.
 - **Clones & pen** — `control_create_clone_of` / `control_start_as_clone` / `control_delete_this_clone`; pen trails render on the stage SVG.
 - **Ask & answer** — `sensing_askandwait` pauses the script and opens an in-app answer dialog (no browser popup), then stores the reply in the `answer` variable.
+- **Terminal tool** — `POST /api/terminal/exec` runs one shell command in the project root (90s timeout, output capped, dev-server commands refused so it can't fight the managed preview). `src/lib/terminalSession.ts` shares one transcript between the AI chat and the xterm console drawer. **Security:** this executes commands on the host — keep `ENABLE_TERMINAL=0` for public/multi-user deployments.
 
 ## Deployment
 
@@ -129,6 +132,7 @@ Three supported targets (all run the Express server that also serves `dist/`):
 | Imported Scratch stage backdrops (full-stage render + stage scripts) | ✅ |
 | PWA: installable standalone app + offline (manifest + service worker) | ✅ |
 | Mobile layout with Blocks / Stage tabs and tap-to-place blocks | ✅ |
+| Background terminal (xterm.js) driven by the AI assistant (`/cmd` + intents) | ✅ |
 
 ## Known limitations
 

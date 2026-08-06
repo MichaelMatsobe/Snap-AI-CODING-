@@ -7,6 +7,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { chatCompletion, listProviders } from './ai/chat.js';
 import type { ChatMessage } from './ai/types.js';
@@ -22,6 +24,11 @@ const isProd = process.env.NODE_ENV === 'production';
 // API_PORT wins so the bundled dev/preview run can keep the API on a fixed
 // internal port while the web frontend takes the externally injected PORT.
 const PORT = Number(process.env.API_PORT || process.env.PORT) || 3001;
+
+const execAsync = promisify(exec);
+// In-app terminal tool. Disable for public/multi-user deployments with
+// ENABLE_TERMINAL=0 — it executes shell commands on the host.
+const ENABLE_TERMINAL = process.env.ENABLE_TERMINAL !== '0';
 
 const app = express();
 
@@ -122,6 +129,63 @@ app.put('/api/projects/:id', (req, res) => {
 app.delete('/api/projects/:id', (req, res) => {
   const ok = deleteProject(req.params.id);
   res.json({ ok });
+});
+
+// ── In-app terminal (background console for the AI assistant) ────────────
+// Runs a single shell command in the project root, returns output + exit code.
+// Stateless by design (each call starts fresh from the repo root).
+const DEV_SERVER_RE =
+  /(npm run (dev|client|server|start|preview|preview:prod)\b)|(\bvite\s*$)|(\bvite\s+(dev|serve|preview)\b)|(concurrently\b)|(\btsx\s+watch\b)/i;
+
+app.post('/api/terminal/exec', async (req, res) => {
+  if (!ENABLE_TERMINAL) {
+    res.status(403).json({ error: 'Terminal tool is disabled (set ENABLE_TERMINAL=1 to enable it)' });
+    return;
+  }
+  const { command } = (req.body || {}) as { command?: string };
+  if (typeof command !== 'string' || !command.trim()) {
+    res.status(400).json({ error: 'command is required' });
+    return;
+  }
+  if (command.length > 2000) {
+    res.status(400).json({ error: 'command too long (max 2000 chars)' });
+    return;
+  }
+  if (DEV_SERVER_RE.test(command.trim())) {
+    res.status(400).json({
+      error:
+        'Refusing to start a dev server from the console — the Freebuff platform owns the preview lifecycle. ' +
+        'Use "freebuff-preview status" to inspect, or start the preview from the platform UI.',
+    });
+    return;
+  }
+
+  const started = Date.now();
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      cwd: path.join(__dirname, '..'), // project root
+      timeout: 90_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    res.json({
+      command,
+      exitCode: 0,
+      stdout: stdout.slice(0, 20_000),
+      stderr: stderr.slice(0, 20_000),
+      killed: false,
+      durationMs: Date.now() - started,
+    });
+  } catch (err) {
+    const e = err as { code?: number; stdout?: string; stderr?: string; killed?: boolean };
+    res.json({
+      command,
+      exitCode: typeof e.code === 'number' ? e.code : 1,
+      stdout: (e.stdout || '').slice(0, 20_000),
+      stderr: (e.stderr || '').slice(0, 20_000),
+      killed: Boolean(e.killed),
+      durationMs: Date.now() - started,
+    });
+  }
 });
 
 if (isProd) {

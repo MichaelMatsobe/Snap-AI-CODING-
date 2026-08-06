@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, Sparkles, Loader2, Bot, User, Blocks } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { aiChat, type ChatMessage } from '../lib/api';
+import { aiChat, type ChatMessage, type TerminalResult } from '../lib/api';
+import { runAndLog } from '../lib/terminalSession';
 import {
   AI_SCRIPT_SYSTEM,
   heuristicScriptFromPrompt,
@@ -31,6 +32,8 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
   const [error, setError] = useState<string | null>(null);
   const [lastProvider, setLastProvider] = useState<string | null>(null);
   const [lastBuild, setLastBuild] = useState<string | null>(null);
+  // Output of the last terminal tool run — fed to the AI on the next request.
+  const [toolContext, setToolContext] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -41,6 +44,30 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  // ── Terminal tool ───────────────────────────────────────────────────────
+  // "/cmd <shell>" runs the command verbatim; recognized natural-language
+  // intents auto-run a mapped command. Output streams into the background
+  // console and is summarized here in chat.
+  const TOOL_INTENTS: Array<{ test: RegExp; run: string }> = [
+    { test: /\bpreview\s+status\b/i, run: 'freebuff-preview status' },
+    { test: /\bpreview\s+logs?\b/i, run: 'freebuff-preview logs' },
+    { test: /\b(start|launch)\s+(the\s+)?preview\b/i, run: 'freebuff-preview start' },
+    { test: /\bgit\s+(status|log)\b/i, run: 'git status' },
+    { test: /\bgit\s+pull\b/i, run: 'git pull' },
+    { test: /\bgit\s+push\b/i, run: 'git push' },
+    { test: /\b(typecheck|lint)\b/i, run: 'npm run lint' },
+    { test: /\brun\s+tests?\b/i, run: 'npm run lint' },
+    { test: /\bbuild\b/i, run: 'npm run build' },
+  ];
+
+  function formatToolResult(r: TerminalResult): string {
+    const body = [r.stdout.trim(), r.stderr.trim()].filter(Boolean).join('\n').slice(0, 4000);
+    const status = r.killed
+      ? `killed (timeout after ${Math.round(r.durationMs / 1000)}s)`
+      : `exit ${r.exitCode} · ${(r.durationMs / 1000).toFixed(1)}s`;
+    return `🛠 Ran \`${r.command}\` — ${status}${body ? `\n\n${body}` : ''}`;
+  }
 
   function tryInject(raw: string, userPrompt: string): boolean {
     if (!activeSprite || !onInjectSprite) return false;
@@ -72,9 +99,34 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
     setError(null);
     setLastBuild(null);
 
+    // Terminal tool first: /cmd verbatim, otherwise matched intents.
+    const cmdMatch = text.match(/^\/cmd\s+([\s\S]+)$/);
+    const intent = cmdMatch ? null : TOOL_INTENTS.find((t) => t.test.test(text));
+    const command = (cmdMatch ? cmdMatch[1] : intent?.run)?.trim();
+    if (command) {
+      try {
+        const result = await runAndLog(command);
+        setMessages((prev) => [...prev, { role: 'assistant', content: formatToolResult(result) }]);
+        setLastProvider(`terminal · ${result.durationMs}ms`);
+        setToolContext(
+          `Last terminal command: ${command}\nExit code: ${result.exitCode}\nOutput:\n${(
+            result.stdout + result.stderr
+          ).slice(0, 2500)}`
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Command failed');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     try {
       const history = next.filter((m) => m.role !== 'system').slice(-12);
-      const result = await aiChat(history, { system: AI_SCRIPT_SYSTEM });
+      const system = toolContext
+        ? `${AI_SCRIPT_SYSTEM}\n\nYou can run terminal commands when the user asks (build, lint, git, preview status…). For context, your most recent terminal result was:\n${toolContext}`
+        : AI_SCRIPT_SYSTEM;
+      const result = await aiChat(history, { system });
       setMessages((prev) => [...prev, { role: 'assistant', content: result.content }]);
       setLastProvider(`${result.provider} · ${result.model}`);
       tryInject(result.content, text);
@@ -128,12 +180,22 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
             </button>
           </div>
 
-          <div className="px-3 py-2 border-b border-white/5 flex flex-wrap gap-1.5">
+          <div className="px-3 py-2 border-b border-white/5 flex flex-wrap gap-1.5 items-center">
             {['Build spin forever', 'Build bounce script', 'Build clone swarm'].map((q) => (
               <button
                 key={q}
                 onClick={() => void send(q)}
                 className="text-[10px] px-2 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
+              >
+                {q}
+              </button>
+            ))}
+            <span className="text-[9px] text-zinc-600 uppercase tracking-wider ml-1">Terminal</span>
+            {['Run build', 'Git status', 'Preview status', 'Lint'].map((q) => (
+              <button
+                key={q}
+                onClick={() => void send(q)}
+                className="text-[10px] px-2 py-1 rounded-full bg-tertiary/10 text-tertiary border border-tertiary/20 hover:bg-tertiary/20 font-mono"
               >
                 {q}
               </button>
@@ -190,7 +252,7 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
                 rows={2}
-                placeholder="Build a script that spins and bounces…"
+                placeholder="Build a script… · /cmd npm run build runs terminal commands"
                 className="flex-1 resize-none bg-black/40 border border-outline-variant/30 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary/50"
                 disabled={loading}
               />

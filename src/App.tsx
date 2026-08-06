@@ -20,8 +20,12 @@ import {
   Save,
   FolderOpen,
   Palette,
+  SquareTerminal,
+  X,
 } from 'lucide-react';
 import { AiAssistant } from './components/AiAssistant';
+import { TerminalDrawer } from './components/TerminalDrawer';
+import { clearTerminal } from './lib/terminalSession';
 import { Workspace } from './components/Workspace';
 import { Stage } from './components/Stage';
 import { PaletteBlock } from './components/BlockView';
@@ -58,6 +62,8 @@ export default function App() {
   const [pendingOpcode, setPendingOpcode] = useState<string | null>(null);
   // Small screens switch between the code editor and the stage/extras panel.
   const [mobileTab, setMobileTab] = useState<'code' | 'stage'>('code');
+  // Background terminal console (AI-driven + direct input).
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const vmRef = useRef<StageVM | null>(null);
 
   useEffect(() => {
@@ -483,6 +489,28 @@ export default function App() {
         </main>
       </div>
 
+      {consoleOpen && (
+        <div className="h-48 flex-shrink-0 border-t border-background bg-[#0b0c0c] flex flex-col">
+          <div className="h-8 flex-shrink-0 flex items-center justify-between px-3 bg-surface-container-lowest border-b border-white/5">
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Terminal · background console</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => clearTerminal()}
+                className="text-[9px] font-bold px-2 py-0.5 rounded bg-surface-container-high text-zinc-400 hover:text-white"
+              >
+                Clear
+              </button>
+              <button onClick={() => setConsoleOpen(false)} className="p-0.5 text-zinc-500 hover:text-white" title="Hide console">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0">
+            <TerminalDrawer />
+          </div>
+        </div>
+      )}
+
       <footer className="h-7 flex-shrink-0 bg-surface-container-lowest flex items-center justify-between gap-3 px-3 overflow-x-auto border-t border-background text-[10px] font-bold text-zinc-500 uppercase tracking-tighter">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5">
@@ -495,9 +523,21 @@ export default function App() {
           </span>
           {visionLabels[0] && <span className="text-primary normal-case">vision: {visionLabels[0]}</span>}
         </div>
-        <div className="flex items-center gap-2">
-          <Code className="w-3 h-3" />
-          v1.4.0
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setConsoleOpen((v) => !v)}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-md hover:bg-white/5 ${
+              consoleOpen ? 'text-primary' : 'text-zinc-500'
+            }`}
+            title="Background console (terminal) — AI tools run here"
+          >
+            <SquareTerminal className="w-3 h-3" />
+            <span className="hidden sm:inline">Console</span>
+          </button>
+          <span className="flex items-center gap-2 pl-1">
+            <Code className="w-3 h-3" />
+            v1.4.0
+          </span>
         </div>
       </footer>
 

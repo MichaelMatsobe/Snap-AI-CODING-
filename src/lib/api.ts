@@ -126,3 +126,26 @@ export async function loadRemoteProject(id: string): Promise<unknown | null> {
     return null;
   }
 }
+
+// ── In-app terminal (background console) ────────────────────────────────
+export interface TerminalResult {
+  command: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  killed?: boolean;
+  durationMs: number;
+}
+
+/** Run one shell command in the project root and return its output. */
+export async function runTerminalCommand(command: string): Promise<TerminalResult> {
+  return fetchJson<TerminalResult>(
+    `${BASE}/terminal/exec`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command }),
+    },
+    110_000 // builds can take a while
+  );
+}
