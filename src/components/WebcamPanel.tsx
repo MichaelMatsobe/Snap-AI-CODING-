@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera, CameraOff, Scan } from 'lucide-react';
-import { detectFromWebcam, startWebcam, stopWebcam, topLabel, type VisionDetection } from '../engine/vision';
+import { detectFromWebcam, preloadModel, startWebcam, stopWebcam, topLabel, type VisionDetection } from '../engine/vision';
 
 interface Props {
   onLabels?: (labels: string[], top: string) => void;
@@ -10,6 +10,7 @@ export function WebcamPanel({ onLabels }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [on, setOn] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [modelReady, setModelReady] = useState(false);
   const [dets, setDets] = useState<VisionDetection[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,6 +27,12 @@ export function WebcamPanel({ onLabels }: Props) {
       return;
     }
     try {
+      // TensorFlow.js + COCO-SSD only load now that the panel is in use —
+      // download them while the camera permission prompt is up.
+      setModelReady(false);
+      void preloadModel()
+        .then(() => setModelReady(true))
+        .catch(() => setModelReady(true)); // scan() surfaces the real error
       const video = await startWebcam();
       video.className = 'w-full rounded-lg';
       hostRef.current?.replaceChildren(video);
@@ -65,8 +72,8 @@ export function WebcamPanel({ onLabels }: Props) {
           disabled={!on || busy}
           className="flex-1 flex items-center justify-center gap-1.5 text-[10px] font-bold py-1.5 rounded-lg bg-primary/20 text-primary border border-primary/30 disabled:opacity-40"
         >
-          <Scan className="w-3.5 h-3.5" />
-          {busy ? 'Detecting…' : 'COCO-SSD'}
+          <Scan className={`w-3.5 h-3.5 ${!modelReady ? 'animate-spin' : ''}`} />
+          {!modelReady ? 'Loading ML…' : busy ? 'Detecting…' : 'COCO-SSD'}
         </button>
       </div>
       <div ref={hostRef} className="bg-black/40 rounded-lg min-h-[80px] overflow-hidden" />
