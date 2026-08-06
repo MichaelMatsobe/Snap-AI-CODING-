@@ -61,6 +61,18 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
     { test: /\bbuild\b/i, run: 'npm run build' },
   ];
 
+  function friendlyAiError(err: unknown): string {
+    const msg = err instanceof Error ? err.message : 'Request failed';
+    if (/all ai providers failed|failed to fetch|networkerror|timed out/i.test(msg)) {
+      return (
+        'AI is unavailable right now — the free providers are rate-limited or offline (this is common with ' +
+        "Pollinations' free tier). Heuristic block building still works offline. For reliable AI, add a " +
+        'GROQ_API_KEY or OPENROUTER_API_KEY in AI Settings (⚙️).'
+      );
+    }
+    return msg;
+  }
+
   function formatToolResult(r: TerminalResult): string {
     const body = [r.stdout.trim(), r.stderr.trim()].filter(Boolean).join('\n').slice(0, 4000);
     const status = r.killed
@@ -84,7 +96,7 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
       y: 40 + Math.random() * 120,
     });
     onInjectSprite(copy);
-    setLastBuild(`Injected ${payload.blocks.length} blocks (root ${root.slice(0, 8)}…)`);
+    setLastBuild(`Injected ${payload.blocks.length} blocks — press the green flag ▶ to run it`);
     return true;
   }
 
@@ -137,11 +149,11 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
           ...prev,
           {
             role: 'assistant',
-            content: 'API unreachable — built a heuristic script from your prompt and placed it on the sprite.',
+            content: 'AI is unavailable right now — built a heuristic script from your prompt and placed it on the sprite. Press the green flag ▶ to run it.',
           },
         ]);
       } else {
-        setError(err instanceof Error ? err.message : 'Request failed');
+        setError(friendlyAiError(err));
       }
     } finally {
       setLoading(false);

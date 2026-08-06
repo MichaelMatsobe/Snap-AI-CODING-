@@ -75,40 +75,62 @@ async function openaiCompatibleChat(
 }
 
 /** Pollinations — no key required (anonymous tier works for text) */
+/**
+ * The Pollinations anonymous tier hard-rejects any request that includes a
+ * `system` role message (or persona-style phrasing) with HTTP 402
+ * "Payment Required / API key budget too low" — only plain conversational
+ * user text is served. Since our app always attaches AI_SCRIPT_SYSTEM, we
+ * drop system messages before sending so the free tier actually responds.
+ * Keyed providers (Groq/OpenRouter) still receive the full system prompt
+ * and are the reliable path for script building.
+ */
 export const pollinations: Provider = {
   id: 'pollinations',
   name: 'Pollinations',
   requiresKey: false,
   isConfigured: () => true,
   async chat({ messages, temperature = 0.7, max_tokens = 1024 }) {
-    // Prefer OpenAI-compatible path on text.pollinations.ai (no key)
-    try {
-      return await openaiCompatibleChat(
-        'https://text.pollinations.ai',
+    // Primary: OpenAI-compatible endpoint. The documented base is
+    // https://text.pollinations.ai/openai (the SDK appends /chat/completions) —
+    // POSTing to text.pollinations.ai/chat/completions does NOT exist (404).
+    const safe = messages.filter((m) => m.role !== 'system');
+    const attempt = () =>
+      openaiCompatibleChat(
+        'https://text.pollinations.ai/openai',
         undefined,
         'openai',
-        messages,
+        safe,
         temperature,
         max_tokens,
         'pollinations',
         'Pollinations'
       );
+    try {
+      return await attempt();
     } catch {
-      // Fallback: simple GET text endpoint
-      const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-      const prompt = lastUser?.content || 'Hello';
-      const res = await fetch(
-        `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai`,
-        { method: 'GET', signal: AbortSignal.timeout(60_000) }
-      );
-      if (!res.ok) throw new Error(`Pollinations GET ${res.status}`);
-      const content = (await res.text()).trim();
-      if (!content) throw new Error('Pollinations: empty GET response');
-      return {
-        content,
-        provider: 'pollinations',
-        model: 'openai',
-      };
+      // The anonymous tier is flaky (rate limits / payment-required on some
+      // requests) — retry once after a short pause before falling back.
+      try {
+        await new Promise((r) => setTimeout(r, 800));
+        return await attempt();
+      } catch {
+        // Last resort: legacy GET text endpoint (short prompts only — long ones
+        // get rejected with 402 by the anonymous tier).
+        const lastUser = [...safe].reverse().find((m) => m.role === 'user');
+        const prompt = (lastUser?.content || 'Hello').slice(0, 500);
+        const res = await fetch(
+          `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai`,
+          { method: 'GET', signal: AbortSignal.timeout(60_000) }
+        );
+        if (!res.ok) throw new Error(`Pollinations GET ${res.status}`);
+        const content = (await res.text()).trim();
+        if (!content) throw new Error('Pollinations: empty GET response');
+        return {
+          content,
+          provider: 'pollinations',
+          model: 'openai',
+        };
+      }
     }
   },
 };

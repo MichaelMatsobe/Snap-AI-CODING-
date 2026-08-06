@@ -2,6 +2,50 @@ import { v4 as uuid } from 'uuid';
 import type { AiScriptBlock, AiScriptPayload, BlockInstance, SpriteState } from './types';
 import { getDef } from './blocks';
 
+/**
+ * LLMs frequently hallucinate opcode spellings. Normalize the common variants
+ * to the real catalogue opcodes so injected scripts actually render and run.
+ */
+const OPCODE_ALIASES: Record<string, string> = {
+  when_green_flag_clicked: 'event_whenflagclicked',
+  event_when_green_flag_clicked: 'event_whenflagclicked',
+  event_greenflag: 'event_whenflagclicked',
+  when_key_pressed: 'event_whenkeypressed',
+  when_this_sprite_clicked: 'event_whenthisspriteclicked',
+  when_i_receive: 'event_whenbroadcastreceived',
+  when_start_as_clone: 'control_start_as_clone',
+  move_steps: 'motion_movesteps',
+  turn_right: 'motion_turnright',
+  turn_left: 'motion_turnleft',
+  go_to_x_y: 'motion_gotoxy',
+  go_to: 'motion_goto',
+  point_in_direction: 'motion_pointindirection',
+  say: 'looks_say',
+  say_for_secs: 'looks_sayforsecs',
+  think: 'looks_think',
+  show: 'looks_show',
+  hide: 'looks_hide',
+  change_size_by: 'looks_changesizeby',
+  set_size_to: 'looks_setsizeto',
+  wait: 'control_wait',
+  wait_seconds: 'control_wait',
+  repeat: 'control_repeat',
+  forever: 'control_forever',
+  if_then: 'control_if',
+  if_else: 'control_if_else',
+  create_clone_of: 'control_create_clone_of',
+  delete_this_clone: 'control_delete_this_clone',
+  set_variable_to: 'data_setvariableto',
+  change_variable_by: 'data_changevariableby',
+  play_sound: 'sound_play',
+  pen_down: 'pen_pendown',
+  pen_up: 'pen_penup',
+};
+
+function normalizeOpcode(opcode: string): string {
+  return OPCODE_ALIASES[opcode] || opcode;
+}
+
 /** Parse AI JSON payload (raw or fenced) into structured blocks */
 export function parseAiScript(raw: string): AiScriptPayload | null {
   try {
@@ -73,12 +117,13 @@ export function injectScriptIntoSprite(
 ): string {
   const map: string[] = [];
   const instances: BlockInstance[] = payload.blocks.map((b, idx) => {
-    const def = getDef(b.opcode);
+    const opcode = normalizeOpcode(b.opcode);
+    const def = getDef(opcode);
     const id = uuid();
     map[idx] = id;
     return {
       id,
-      opcode: b.opcode,
+      opcode,
       fields: { ...(def?.fields || {}), ...(b.fields || {}) },
       inputs: Object.fromEntries(
         Object.entries({ ...(def?.fields || {}), ...(b.fields || {}) }).map(([k, v]) => [
@@ -103,8 +148,32 @@ export function injectScriptIntoSprite(
   for (const inst of instances) {
     sprite.blocks[inst.id] = inst;
   }
-  const rootId = map[payload.rootIndex ?? 0];
-  if (rootId && !sprite.scriptRoots.includes(rootId)) {
+  const rootIdx = payload.rootIndex ?? 0;
+  let rootId = map[rootIdx];
+  if (!rootId) return '';
+
+  // Scripts only start when the green flag is pressed if their root is the
+  // event_whenflagclicked hat — but the AI frequently omits the hat. If the
+  // root isn't already a hat (e.g. a key-pressed or clone hat), wrap the whole
+  // script in a green-flag hat so it actually runs.
+  const rootDef = getDef(sprite.blocks[rootId]?.opcode ?? '');
+  if (rootDef?.shape !== 'hat') {
+    const hatId = uuid();
+    sprite.blocks[hatId] = {
+      id: hatId,
+      opcode: 'event_whenflagclicked',
+      fields: {},
+      inputs: {},
+      nextId: rootId,
+      branchId: null,
+      branch2Id: null,
+      x: origin.x,
+      y: origin.y,
+    };
+    sprite.scriptRoots = sprite.scriptRoots.filter((r) => r !== rootId);
+    sprite.scriptRoots.push(hatId);
+    rootId = hatId;
+  } else if (!sprite.scriptRoots.includes(rootId)) {
     sprite.scriptRoots.push(rootId);
   }
   return rootId;

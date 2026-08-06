@@ -39,7 +39,8 @@ export async function chatCompletion(req: ChatRequest): Promise<ChatResult> {
   }
 
   throw new Error(
-    `All AI providers failed. Tried: ${errors.join(' | ') || 'none configured'}`
+    `All AI providers failed. Tried: ${errors.join(' | ') || 'none configured'}. ` +
+      `Tip: add GROQ_API_KEY or OPENROUTER_API_KEY (or run Ollama) for a reliable provider — Pollinations' free tier is frequently rate-limited.`
   );
 }
 
