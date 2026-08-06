@@ -139,9 +139,12 @@ export function BlockView({
 export function PaletteBlock({
   opcode,
   onDragStart,
+  onPick,
 }: {
   opcode: string;
   onDragStart: (e: React.DragEvent, opcode: string) => void;
+  /** Tap-to-place: fires on click/tap so touch users can drop blocks on the canvas. */
+  onPick?: (opcode: string) => void;
 }) {
   const def = getDef(opcode);
   if (!def) return null;
@@ -158,8 +161,9 @@ export function PaletteBlock({
   };
   return (
     <div
-      className="cursor-grab active:cursor-grabbing opacity-95 hover:opacity-100"
+      className="cursor-grab active:cursor-grabbing opacity-95 hover:opacity-100 active:opacity-80"
       draggable
+      onClick={() => onPick?.(opcode)}
       onDragStart={(e) => {
         e.dataTransfer.setData('application/snap-opcode', opcode);
         e.dataTransfer.setData('application/snap-shape', def.shape);

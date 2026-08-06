@@ -15,9 +15,12 @@ import { newBlockFromOpcode } from '../engine/project';
 interface Props {
   sprite: SpriteState;
   onChange: (sprite: SpriteState) => void;
+  /** Touch flow: when a palette block was tapped, the next canvas tap places it. */
+  pendingOpcode?: string | null;
+  onConsumePending?: () => void;
 }
 
-export function Workspace({ sprite, onChange }: Props) {
+export function Workspace({ sprite, onChange, pendingOpcode, onConsumePending }: Props) {
   const mutate = useCallback(
     (fn: (s: SpriteState) => void) => {
       const copy = structuredClone(sprite);
@@ -52,6 +55,27 @@ export function Workspace({ sprite, onChange }: Props) {
       }
     });
   };
+
+  // Tap-to-place (touch devices): place the pending palette block at a point.
+  const placeAt = useCallback(
+    (clientX: number, clientY: number, container: HTMLElement) => {
+      const rect = container.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const opcode = pendingOpcode;
+      if (!opcode) return;
+      mutate((s) => {
+        const b = newBlockFromOpcode(opcode);
+        if (!b) return;
+        b.x = x;
+        b.y = y;
+        s.blocks[b.id] = b;
+        s.scriptRoots.push(b.id);
+        onConsumePending?.();
+      });
+    },
+    [pendingOpcode, mutate, onConsumePending]
+  );
 
   const onDropOnBlock = (e: React.DragEvent, targetId: string, mode: 'next' | 'branch' | 'branch2') => {
     e.preventDefault();
@@ -258,7 +282,19 @@ export function Workspace({ sprite, onChange }: Props) {
   };
 
   return (
-    <div className="absolute inset-0 overflow-auto custom-scrollbar" onDragOver={onDragOver} onDrop={onDropCanvas}>
+    <div
+      className="absolute inset-0 overflow-auto custom-scrollbar"
+      onDragOver={onDragOver}
+      onDrop={onDropCanvas}
+      onClick={(e) => {
+        if (pendingOpcode) placeAt(e.clientX, e.clientY, e.currentTarget);
+      }}
+    >
+      {pendingOpcode && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 pointer-events-none bg-primary text-on-primary text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap">
+          Tap the canvas to place the block · Esc cancels
+        </div>
+      )}
       <div className="relative w-full min-h-full" style={{ height: 1600, width: 1100 }}>
         {sprite.scriptRoots.map((rootId) => {
           const root = sprite.blocks[rootId];

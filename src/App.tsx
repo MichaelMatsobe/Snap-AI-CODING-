@@ -54,6 +54,10 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [visionLabels, setVisionLabels] = useState<string[]>([]);
   const [askText, setAskText] = useState('');
+  // Touch-first flow: tap a palette block, then tap the canvas to place it.
+  const [pendingOpcode, setPendingOpcode] = useState<string | null>(null);
+  // Small screens switch between the code editor and the stage/extras panel.
+  const [mobileTab, setMobileTab] = useState<'code' | 'stage'>('code');
   const vmRef = useRef<StageVM | null>(null);
 
   useEffect(() => {
@@ -123,6 +127,11 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat) return;
+      // Escape cancels a pending tap-to-place block.
+      if (e.key === 'Escape') {
+        setPendingOpcode(null);
+        return;
+      }
       // Don't trigger "when key pressed" hats while typing in fields.
       const t = e.target as HTMLElement | null;
       if (
@@ -222,8 +231,8 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-background text-on-surface select-none">
-      <header className="h-14 flex items-center justify-between px-4 bg-surface/90 backdrop-blur border-b border-white/5 z-50">
+    <div className="flex flex-col h-dvh bg-background text-on-surface select-none touch-manipulation">
+      <header className="min-h-14 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2 bg-surface/90 backdrop-blur border-b border-white/5 z-50">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="text-lg font-bold tracking-tighter text-primary">Snap!</span>
@@ -266,7 +275,7 @@ export default function App() {
             <Sparkles className="w-3.5 h-3.5" />
             AI
           </button>
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-full border border-outline-variant/20 text-[10px] text-zinc-400">
+          <div className="hidden md:flex items-center gap-1.5 px-2 py-1 rounded-full border border-outline-variant/20 text-[10px] text-zinc-400">
             <CloudCheck className={`w-3 h-3 ${savedFlash ? 'text-secondary' : 'text-zinc-500'}`} />
             Autosave
           </div>
@@ -281,7 +290,7 @@ export default function App() {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-12 flex flex-col items-center py-6 gap-3 bg-surface-container-low border-r border-white/5">
+        <aside className="hidden lg:flex w-12 flex-col items-center py-6 gap-3 bg-surface-container-low border-r border-white/5">
           <button onClick={newProject} className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
             <Plus className="w-5 h-5" />
           </button>
@@ -298,8 +307,33 @@ export default function App() {
           </div>
         </aside>
 
-        <main className="flex-1 flex overflow-hidden">
-          <section className="w-72 bg-surface-container-low flex flex-col border-r border-background">
+        <main className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+          {/* Mobile-only view switcher (desktop shows all panes side by side) */}
+          <div className="lg:hidden flex items-center gap-1 px-2 h-10 flex-shrink-0 bg-surface-container-lowest border-b border-background">
+            <button
+              onClick={() => setMobileTab('code')}
+              className={`px-3 h-7 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                mobileTab === 'code' ? 'bg-primary text-on-primary' : 'text-zinc-400'
+              }`}
+            >
+              Blocks
+            </button>
+            <button
+              onClick={() => setMobileTab('stage')}
+              className={`px-3 h-7 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                mobileTab === 'stage' ? 'bg-primary text-on-primary' : 'text-zinc-400'
+              }`}
+            >
+              Stage
+            </button>
+            <span className="ml-auto text-[9px] text-zinc-600 pr-1">Tap a block, then tap the canvas</span>
+          </div>
+
+          <section
+            className={`${
+              mobileTab === 'code' ? 'flex' : 'hidden'
+            } lg:flex flex-col w-full lg:w-72 h-2/5 lg:h-auto bg-surface-container-low border-r border-background`}
+          >
             <div className="p-2 grid grid-cols-3 gap-1 border-b border-background/50 max-h-36 overflow-y-auto custom-scrollbar">
               {ALL_CATEGORIES.map((c) => (
                 <button
@@ -315,16 +349,34 @@ export default function App() {
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
               {blocksForCategory(category).map((def) => (
-                <PaletteBlock key={def.opcode} opcode={def.opcode} onDragStart={onPaletteDrag} />
+                <PaletteBlock
+                  key={def.opcode}
+                  opcode={def.opcode}
+                  onDragStart={onPaletteDrag}
+                  onPick={(op) => setPendingOpcode(op)}
+                />
               ))}
             </div>
           </section>
 
-          <section className="flex-1 bg-surface block-canvas-grid relative overflow-hidden">
-            <Workspace sprite={active} onChange={updateSprite} />
+          <section
+            className={`${
+              mobileTab === 'code' ? 'flex' : 'hidden'
+            } lg:flex flex-1 bg-surface block-canvas-grid relative overflow-hidden`}
+          >
+            <Workspace
+              sprite={active}
+              onChange={updateSprite}
+              pendingOpcode={pendingOpcode}
+              onConsumePending={() => setPendingOpcode(null)}
+            />
           </section>
 
-          <section className="w-[400px] bg-surface-container-low flex flex-col border-l border-background">
+          <section
+            className={`${
+              mobileTab === 'stage' ? 'flex' : 'hidden'
+            } lg:flex flex-col flex-1 lg:flex-none w-full lg:w-[400px] bg-surface-container-low border-l border-background`}
+          >
             <div className="p-3 flex-shrink-0">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Stage</span>
@@ -431,7 +483,7 @@ export default function App() {
         </main>
       </div>
 
-      <footer className="h-7 bg-surface-container-lowest flex items-center justify-between px-3 border-t border-background text-[10px] font-bold text-zinc-500 uppercase tracking-tighter">
+      <footer className="h-7 flex-shrink-0 bg-surface-container-lowest flex items-center justify-between gap-3 px-3 overflow-x-auto border-t border-background text-[10px] font-bold text-zinc-500 uppercase tracking-tighter">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5">
             <span className={`w-1.5 h-1.5 rounded-full ${status === 'running' ? 'bg-secondary animate-pulse' : 'bg-zinc-600'}`} />

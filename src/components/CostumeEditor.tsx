@@ -50,18 +50,20 @@ export function CostumeEditor({ open, onClose, costume, onSave }: Props) {
     }
   }, [open, costume]);
 
-  const paint = (e: React.MouseEvent) => {
+  const paintAt = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * SIZE;
-    const y = ((e.clientY - rect.top) / rect.height) * SIZE;
+    const x = ((clientX - rect.left) / rect.width) * SIZE;
+    const y = ((clientY - rect.top) / rect.height) * SIZE;
     const ctx = canvas.getContext('2d')!;
     ctx.fillStyle = tool === 'eraser' ? '#1a1a1a' : color;
     ctx.beginPath();
     ctx.arc(x, y, tool === 'eraser' ? 6 : 4, 0, Math.PI * 2);
     ctx.fill();
   };
+
+  const paint = (e: React.MouseEvent) => paintAt(e.clientX, e.clientY);
 
   const clear = () => {
     const ctx = canvasRef.current?.getContext('2d');
@@ -123,7 +125,7 @@ export function CostumeEditor({ open, onClose, costume, onSave }: Props) {
             ref={canvasRef}
             width={SIZE}
             height={SIZE}
-            className="w-full aspect-square rounded-xl border border-white/10 cursor-crosshair bg-black"
+            className="w-full aspect-square rounded-xl border border-white/10 cursor-crosshair bg-black touch-none"
             onMouseDown={(e) => {
               drawing.current = true;
               paint(e);
@@ -133,6 +135,23 @@ export function CostumeEditor({ open, onClose, costume, onSave }: Props) {
               drawing.current = false;
             }}
             onMouseLeave={() => {
+              drawing.current = false;
+            }}
+            onTouchStart={(e) => {
+              const t = e.touches[0];
+              drawing.current = true;
+              paintAt(t.clientX, t.clientY);
+            }}
+            onTouchMove={(e) => {
+              if (!drawing.current) return;
+              e.preventDefault();
+              const t = e.touches[0];
+              paintAt(t.clientX, t.clientY);
+            }}
+            onTouchEnd={() => {
+              drawing.current = false;
+            }}
+            onTouchCancel={() => {
               drawing.current = false;
             }}
           />

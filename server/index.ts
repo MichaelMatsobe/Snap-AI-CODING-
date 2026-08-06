@@ -126,6 +126,12 @@ app.delete('/api/projects/:id', (req, res) => {
 
 if (isProd) {
   const dist = path.join(__dirname, '..', 'dist');
+  // Some mime tables shipped with older Express don't know .webmanifest — send
+  // the correct type so browsers accept the PWA manifest.
+  app.use('/manifest.webmanifest', (_req, res, next) => {
+    res.type('application/manifest+json');
+    next();
+  });
   app.use(express.static(dist));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();

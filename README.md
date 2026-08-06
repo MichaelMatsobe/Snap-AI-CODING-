@@ -28,6 +28,17 @@ Open **http://localhost:3000**. `npm run dev` runs the Express API (`/api/*`) an
 
 The app also works with zero configuration — Pollinations needs **no API key** and is tried first.
 
+### Works in any browser, installable & offline
+
+- **Any browser** — the IDE is a responsive web app (Scratch/Snap!-style). On phones and tablets it switches to a **Blocks / Stage** tab layout, and you can **tap a palette block, then tap the canvas** to place it (drag & drop stays available on desktop).
+- **Install it (PWA)** — the app ships a web app manifest + service worker:
+  - **Android / Chrome** — open the app, then *Install app* / *Add to Home screen*.
+  - **iOS / Safari** — *Share → Add to Home Screen* (opens standalone, full-screen).
+  - **Desktop** — the *Install* icon in the browser address bar (Chrome/Edge) adds it as a standalone window.
+- **Offline** — after the first visit the app shell and assets are cached by the service worker, so the whole IDE (block editor, VM, costumes, `.sb3` import, localStorage projects) keeps working with no connection. Only the AI assistant and webcam ML need network (the AI API and the first TensorFlow.js download).
+
+The PWA icons can be regenerated anytime with `node scripts/generate-icons.mjs` (zero dependencies).
+
 ## Environment variables
 
 Copy `.env.example` to `.env` (all values optional).
@@ -116,10 +127,13 @@ Three supported targets (all run the Express server that also serves `dist/`):
 | AI provider status panel (⚙️ in header) | ✅ |
 | In-app `ask and wait` dialog (no `window.prompt`) | ✅ |
 | Imported Scratch stage backdrops (full-stage render + stage scripts) | ✅ |
+| PWA: installable standalone app + offline (manifest + service worker) | ✅ |
+| Mobile layout with Blocks / Stage tabs and tap-to-place blocks | ✅ |
 
 ## Known limitations
 
 - Magnetic snap geometry and a full undo stack are not implemented (blocks attach via drop zones).
+- On touch devices, dragging blocks to *snap them into stacks* is not implemented — use tap-to-place and field editing instead; stack building via drag is desktop-only.
 - Export *to* `.sb3` is not implemented.
 - Layer ordering (`go to front/back` layer) and real sound synthesis are not modeled — sound blocks show a status note instead of audio.
 - Hardware extensions (MIDI, LEGO, …) are out of scope.
