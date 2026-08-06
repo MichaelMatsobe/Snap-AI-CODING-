@@ -118,6 +118,8 @@ export interface VmSnapshot {
   message?: string;
   penTrails?: Project['penTrails'];
   answer?: string;
+  /** Pending "ask and wait" question — UI shows an answer dialog until submitAnswer(). */
+  ask?: string | null;
   visionLabels?: string[];
 }
 

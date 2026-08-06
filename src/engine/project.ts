@@ -132,16 +132,21 @@ function normalize(p: Project): Project {
 }
 
 export function saveProjectLocal(project: Project): void {
-  const next = normalize({
-    ...project,
-    updatedAt: new Date().toISOString(),
-    version: project.version + 1,
-  });
-  localStorage.setItem(LS_KEY, JSON.stringify(next));
-  const list = listLocalProjects().filter((x) => x.id !== next.id);
-  list.unshift({ id: next.id, name: next.name, updatedAt: next.updatedAt });
-  localStorage.setItem(LS_LIST, JSON.stringify(list.slice(0, 20)));
-  localStorage.setItem(`snap-project-${next.id}`, JSON.stringify(next));
+  try {
+    const next = normalize({
+      ...project,
+      updatedAt: new Date().toISOString(),
+      version: project.version + 1,
+    });
+    localStorage.setItem(LS_KEY, JSON.stringify(next));
+    const list = listLocalProjects().filter((x) => x.id !== next.id);
+    list.unshift({ id: next.id, name: next.name, updatedAt: next.updatedAt });
+    localStorage.setItem(LS_LIST, JSON.stringify(list.slice(0, 20)));
+    localStorage.setItem(`snap-project-${next.id}`, JSON.stringify(next));
+  } catch (e) {
+    // Storage can be blocked (private mode / quota) — never crash the editor.
+    console.warn('[project] local save failed', e);
+  }
 }
 
 export function loadProjectLocal(): Project | null {

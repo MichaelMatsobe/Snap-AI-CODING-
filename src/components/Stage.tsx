@@ -4,13 +4,15 @@ import type { Project, VmSnapshot } from '../engine/types';
 interface Props {
   project: Project;
   snapshot: VmSnapshot | null;
+  /** Fired when a visible sprite is clicked on stage ("when this sprite clicked" hats). */
+  onSpriteClick?: (spriteId: string) => void;
 }
 
 function toCss(x: number, y: number, stageW: number, stageH: number) {
   return { left: stageW / 2 + x, top: stageH / 2 - y };
 }
 
-export function Stage({ project, snapshot }: Props) {
+export function Stage({ project, snapshot, onSpriteClick }: Props) {
   const vars = snapshot?.variables ?? project.variables;
   const spriteStates = snapshot?.sprites;
   const trails = snapshot?.penTrails ?? project.penTrails ?? [];
@@ -70,6 +72,29 @@ export function Stage({ project, snapshot }: Props) {
             isClone: s.isClone,
           }))
       ).map((sp) => {
+        // Imported Scratch stages render as full-stage backdrops (always visible).
+        if (sp.name === 'Stage') {
+          return (
+            <img
+              key={sp.id}
+              alt={sp.name}
+              src={sp.costumeUrl}
+              referrerPolicy="no-referrer"
+              className={`absolute inset-0 w-full h-full object-cover z-0 ${
+                onSpriteClick ? 'cursor-pointer' : 'pointer-events-none'
+              }`}
+              onClick={
+                onSpriteClick
+                  ? (e) => {
+                      e.stopPropagation();
+                      onSpriteClick(sp.id);
+                    }
+                  : undefined
+              }
+              title={onSpriteClick ? `Click to trigger "when this sprite clicked" for ${sp.name}` : undefined}
+            />
+          );
+        }
         if (!sp.visible) return null;
         const pos = toCss(sp.x, sp.y, project.stageWidth, project.stageHeight);
         const rot = sp.direction - 90;
@@ -80,7 +105,12 @@ export function Stage({ project, snapshot }: Props) {
             alt={sp.name}
             src={sp.costumeUrl}
             referrerPolicy="no-referrer"
-            className="absolute z-10 pointer-events-none"
+            className={`absolute z-10 ${onSpriteClick ? 'pointer-events-auto cursor-pointer hover:brightness-110 transition-[filter]' : 'pointer-events-none'}`}
+            onClick={onSpriteClick ? (e) => {
+              e.stopPropagation();
+              onSpriteClick(sp.id);
+            } : undefined}
+            title={onSpriteClick ? `Click to trigger "when this sprite clicked" for ${sp.name}` : undefined}
             style={{
               width: px,
               height: px,

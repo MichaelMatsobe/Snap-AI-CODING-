@@ -48,6 +48,8 @@ async function openaiCompatibleChat(
       max_tokens,
       stream: false,
     }),
+    // Give up after 60s so the failover chain keeps moving.
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!res.ok) {
@@ -97,7 +99,7 @@ export const pollinations: Provider = {
       const prompt = lastUser?.content || 'Hello';
       const res = await fetch(
         `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai`,
-        { method: 'GET' }
+        { method: 'GET', signal: AbortSignal.timeout(60_000) }
       );
       if (!res.ok) throw new Error(`Pollinations GET ${res.status}`);
       const content = (await res.text()).trim();

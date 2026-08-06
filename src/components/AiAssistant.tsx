@@ -74,19 +74,7 @@ export function AiAssistant({ open, onClose, activeSprite, onInjectSprite }: AiA
 
     try {
       const history = next.filter((m) => m.role !== 'system').slice(-12);
-      const withSystem: ChatMessage[] = [
-        { role: 'system', content: AI_SCRIPT_SYSTEM },
-        ...history,
-      ];
-      // api only sends messages — fold system into first user context if needed
-      const result = await aiChat(
-        history.map((m, i) =>
-          i === 0 && m.role === 'user'
-            ? { ...m, content: `${AI_SCRIPT_SYSTEM}\n\nUser: ${m.content}` }
-            : m
-        )
-      );
-      void withSystem;
+      const result = await aiChat(history, { system: AI_SCRIPT_SYSTEM });
       setMessages((prev) => [...prev, { role: 'assistant', content: result.content }]);
       setLastProvider(`${result.provider} · ${result.model}`);
       tryInject(result.content, text);

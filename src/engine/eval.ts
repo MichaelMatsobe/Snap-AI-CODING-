@@ -16,7 +16,7 @@ export function evalInput(
   block: BlockInstance,
   name: string,
   ctx: EvalCtx,
-  fallback: string | number = 0
+  fallback: string | number | boolean = 0
 ): string | number | boolean {
   const input = block.inputs?.[name];
   if (!input) {

@@ -28,6 +28,7 @@ import { PaletteBlock } from './components/BlockView';
 import { CostumeEditor } from './components/CostumeEditor';
 import { ImportSb3Button } from './components/ImportSb3Button';
 import { WebcamPanel } from './components/WebcamPanel';
+import { SettingsModal } from './components/SettingsModal';
 import { healthCheck, saveRemoteProject, aiChat } from './lib/api';
 import {
   createDefaultProject,
@@ -50,7 +51,9 @@ export default function App() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [costumeOpen, setCostumeOpen] = useState(false);
   const [editCostume, setEditCostume] = useState<Costume | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [visionLabels, setVisionLabels] = useState<string[]>([]);
+  const [askText, setAskText] = useState('');
   const vmRef = useRef<StageVM | null>(null);
 
   useEffect(() => {
@@ -78,16 +81,40 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Reload the VM only when the project *structure* changes (blocks, sprites,
+  // scripts) — variable/list watcher updates must not stop a running script.
+  const projectSig = useMemo(
+    () =>
+      JSON.stringify({
+        id: project.id,
+        name: project.name,
+        stageWidth: project.stageWidth,
+        stageHeight: project.stageHeight,
+        activeSpriteId: project.activeSpriteId,
+        sprites: project.sprites.map((s) => ({
+          id: s.id,
+          name: s.name,
+          costumeUrl: s.costumeUrl,
+          costumeIndex: s.costumeIndex,
+          scriptRoots: s.scriptRoots,
+          blocks: s.blocks,
+        })),
+      }),
+    [project]
+  );
+
   useEffect(() => {
     vmRef.current?.loadProject(project);
     vmRef.current?.setAiCaller(async (prompt) => {
       const r = await aiChat([{ role: 'user', content: prompt }]);
       return r.content;
     });
-    if (visionLabels.length) {
-      (vmRef.current as unknown as { setVisionLabels?: (l: string[]) => void }).setVisionLabels?.(visionLabels);
-    }
-  }, [project, visionLabels]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectSig]);
+
+  useEffect(() => {
+    vmRef.current?.setVisionLabels(visionLabels);
+  }, [visionLabels]);
 
   useEffect(() => {
     vmRef.current?.setTurbo(turbo);
@@ -96,6 +123,14 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat) return;
+      // Don't trigger "when key pressed" hats while typing in fields.
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)
+      ) {
+        return;
+      }
       vmRef.current?.keyPressed(e.key === ' ' ? 'space' : e.key);
     };
     const onUp = (e: KeyboardEvent) => vmRef.current?.keyReleased(e.key === ' ' ? 'space' : e.key);
@@ -181,6 +216,11 @@ export default function App() {
 
   const status = snapshot?.status ?? 'idle';
 
+  const submitAsk = () => {
+    vmRef.current?.submitAnswer(askText);
+    setAskText('');
+  };
+
   return (
     <div className="flex flex-col h-screen bg-background text-on-surface select-none">
       <header className="h-14 flex items-center justify-between px-4 bg-surface/90 backdrop-blur border-b border-white/5 z-50">
@@ -230,7 +270,11 @@ export default function App() {
             <CloudCheck className={`w-3 h-3 ${savedFlash ? 'text-secondary' : 'text-zinc-500'}`} />
             Autosave
           </div>
-          <button className="p-2 text-zinc-400 hover:bg-zinc-800/50 rounded-md">
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="p-2 text-zinc-400 hover:bg-zinc-800/50 rounded-md"
+            title="AI Settings"
+          >
             <Settings className="w-4 h-4" />
           </button>
         </div>
@@ -303,7 +347,11 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <Stage project={project} snapshot={snapshot} />
+              <Stage
+                project={project}
+                snapshot={snapshot}
+                onSpriteClick={(id) => vmRef.current?.spriteClicked(id)}
+              />
             </div>
 
             <div className="flex-1 border-t border-background overflow-y-auto custom-scrollbar p-3 space-y-3">
@@ -397,12 +445,42 @@ export default function App() {
         </div>
         <div className="flex items-center gap-2">
           <Code className="w-3 h-3" />
-          v1.3.0
+          v1.4.0
         </div>
       </footer>
 
       <AiAssistant open={aiOpen} onClose={() => setAiOpen(false)} activeSprite={active} onInjectSprite={updateSprite} />
       <CostumeEditor open={costumeOpen} onClose={() => setCostumeOpen(false)} costume={editCostume} onSave={saveCostume} />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      {snapshot?.ask && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 p-4">
+          <div className="bg-surface-container-low border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+            <div className="px-4 pt-4">
+              <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">Ask &amp; wait</div>
+              <div className="text-sm font-semibold text-on-surface">{snapshot.ask}</div>
+            </div>
+            <div className="p-4 space-y-3">
+              <input
+                autoFocus
+                value={askText}
+                onChange={(e) => setAskText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitAsk();
+                }}
+                placeholder="Type your answer…"
+                className="w-full bg-black/40 border border-outline-variant/30 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary/50"
+              />
+              <button
+                onClick={submitAsk}
+                className="w-full py-2.5 rounded-xl bg-primary text-on-primary text-sm font-bold"
+              >
+                Submit answer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

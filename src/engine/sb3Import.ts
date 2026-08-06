@@ -130,8 +130,19 @@ async function loadAsset(
       `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><circle cx="48" cy="48" r="40" fill="#7cd2f1"/></svg>`
     );
   if (file) {
-    const blob = await file.async('blob');
-    url = URL.createObjectURL(blob);
+    // Embed as a data URL so costumes survive page reloads and remote saves
+    // (blob: URLs are session-only).
+    const format = (costume.dataFormat || 'png').toLowerCase();
+    const mime =
+      format === 'svg'
+        ? 'image/svg+xml'
+        : format === 'jpg' || format === 'jpeg'
+          ? 'image/jpeg'
+          : format === 'gif'
+            ? 'image/gif'
+            : 'image/png';
+    const b64 = await file.async('base64');
+    url = `data:${mime};base64,${b64}`;
   }
   return {
     id: uuid(),

@@ -19,7 +19,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProd = process.env.NODE_ENV === 'production';
-const PORT = Number(process.env.PORT) || 3001;
+// API_PORT wins so the bundled dev/preview run can keep the API on a fixed
+// internal port while the web frontend takes the externally injected PORT.
+const PORT = Number(process.env.API_PORT || process.env.PORT) || 3001;
 
 const app = express();
 
@@ -34,13 +36,13 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json({ limit: '4mb' }));
+app.use(express.json({ limit: '16mb' })); // projects embed base64 costumes
 
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'snap-ai-coding',
-    version: '1.1.0',
+    version: '1.4.0',
     env: process.env.NODE_ENV || 'development',
     time: new Date().toISOString(),
   });
@@ -132,7 +134,7 @@ if (isProd) {
 }
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n  Snap! Technical Atelier API v1.1`);
+  console.log(`\n  Snap! Technical Atelier API v1.4.0`);
   console.log(`  → http://localhost:${PORT}`);
   console.log(`  → env: ${process.env.NODE_ENV || 'development'}\n`);
 });

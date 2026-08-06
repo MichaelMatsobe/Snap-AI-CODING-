@@ -80,6 +80,12 @@ export function injectScriptIntoSprite(
       id,
       opcode: b.opcode,
       fields: { ...(def?.fields || {}), ...(b.fields || {}) },
+      inputs: Object.fromEntries(
+        Object.entries({ ...(def?.fields || {}), ...(b.fields || {}) }).map(([k, v]) => [
+          k,
+          { kind: 'shadow' as const, value: v },
+        ])
+      ),
       nextId: null,
       branchId: null,
       branch2Id: null,

@@ -31,7 +31,14 @@ export function CostumeEditor({ open, onClose, costume, onSave }: Props) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        ctx.drawImage(img, 0, 0, SIZE, SIZE);
+        try {
+          ctx.drawImage(img, 0, 0, SIZE, SIZE);
+        } catch {
+          /* cross-origin draw blocked — keep the blank canvas */
+        }
+      };
+      img.onerror = () => {
+        /* unreachable/corrupt asset — keep the blank canvas */
       };
       img.src = costume.url;
     } else {

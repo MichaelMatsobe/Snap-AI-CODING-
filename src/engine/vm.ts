@@ -6,12 +6,13 @@
 import { v4 as uuid } from 'uuid';
 import type { Project, SpriteState, VmSnapshot, VmStatus } from './types';
 import { makeEvalCtx, numInput, strInput, boolCondition } from './vmEvalBridge';
+import { evalInput } from './eval';
 import { detectFromWebcam, topLabel } from './vision';
 
 interface Thread {
   spriteId: string;
   blockId: string | null;
-  stack: Array<{ blockId: string; mode: 'forever' | 'repeat' | 'branch'; remaining?: number }>;
+  stack: Array<{ blockId: string; mode: 'forever' | 'repeat' | 'repeat_until' | 'branch'; remaining?: number }>;
   waitUntil: number;
   stopped: boolean;
 }
@@ -36,6 +37,7 @@ export class StageVM {
   private sayUntil = 0;
   private sayText = '';
   private visionLabels: string[] = [];
+  private pendingAsk: { thread: Thread; question: string } | null = null;
 
   constructor(project: Project) {
     this.project = structuredClone(project);
@@ -81,6 +83,7 @@ export class StageVM {
       message: this.lastMessage || this.sayText || undefined,
       penTrails: this.project.penTrails,
       answer: this.answer,
+      ask: this.pendingAsk?.question ?? null,
       visionLabels: this.visionLabels,
     };
     this.listeners.forEach((fn) => fn(snap));
@@ -107,6 +110,7 @@ export class StageVM {
     this.stop();
     this.project.sprites = this.project.sprites.filter((s) => !s.isClone);
     this.threads = [];
+    this.pendingAsk = null;
     this.status = 'running';
     this.lastMessage = '';
     this.timerStart = performance.now();
@@ -135,14 +139,15 @@ export class StageVM {
   }
 
   keyPressed(key: string) {
-    this.keys.add(key.toLowerCase());
-    if (this.status !== 'running') return;
+    const normalized = key.toLowerCase();
+    this.keys.add(normalized);
+    let started = false;
     for (const sprite of this.project.sprites) {
       for (const rootId of sprite.scriptRoots) {
         const root = sprite.blocks[rootId];
         if (root?.opcode === 'event_whenkeypressed') {
-          const k = String(root.fields.KEY || 'space').toLowerCase();
-          if (k === key.toLowerCase() || (k === 'space' && key === ' ')) {
+          const want = String(root.fields.KEY || 'space').toLowerCase();
+          if (want === normalized || (want === 'space' && key === ' ')) {
             this.threads.push({
               spriteId: sprite.id,
               blockId: root.nextId,
@@ -150,13 +155,39 @@ export class StageVM {
               waitUntil: 0,
               stopped: false,
             });
-            if (this.status === 'idle') {
-              this.status = 'running';
-              this.loop();
-            }
+            started = true;
           }
         }
       }
+    }
+    // Start the VM from idle when a key hat fires
+    if (started && this.status === 'idle') {
+      this.status = 'running';
+      this.loop();
+    }
+  }
+
+  /** Fire "when this sprite clicked" hats for the given sprite (starts VM from idle if needed). */
+  spriteClicked(spriteId: string) {
+    const sprite = this.getSprite(spriteId);
+    if (!sprite) return;
+    let started = false;
+    for (const rootId of sprite.scriptRoots) {
+      const root = sprite.blocks[rootId];
+      if (root?.opcode === 'event_whenthisspriteclicked') {
+        this.threads.push({
+          spriteId: sprite.id,
+          blockId: root.nextId,
+          stack: [],
+          waitUntil: 0,
+          stopped: false,
+        });
+        started = true;
+      }
+    }
+    if (started && this.status === 'idle') {
+      this.status = 'running';
+      this.loop();
     }
   }
 
@@ -183,6 +214,7 @@ export class StageVM {
   stop() {
     this.status = 'idle';
     this.threads = [];
+    this.pendingAsk = null;
     cancelAnimationFrame(this.raf);
     this.emit();
   }
@@ -245,6 +277,30 @@ export class StageVM {
         }
         return;
       }
+      if (frame.mode === 'repeat_until') {
+        // Re-check the loop condition each iteration, not just on entry.
+        const blk = sprite.blocks[frame.blockId];
+        if (!blk) {
+          thread.blockId = null;
+          return;
+        }
+        const loopCtx = makeEvalCtx(
+          this.project,
+          sprite,
+          this.keys,
+          this.mouse,
+          this.timerStart,
+          this.answer,
+          this.visionLabels
+        );
+        if (boolCondition(blk, loopCtx)) {
+          thread.blockId = blk.nextId;
+        } else {
+          thread.blockId = blk.branchId || null;
+          thread.stack.push(frame);
+        }
+        return;
+      }
       if (frame.mode === 'branch') {
         thread.blockId = sprite.blocks[frame.blockId]?.nextId || null;
         return;
@@ -285,6 +341,11 @@ export class StageVM {
           color: (sprite as SpriteState & { _penColor?: string })._penColor || '#00D2FF',
           size: (sprite as SpriteState & { _penSize?: number })._penSize || 2,
         });
+        // Cap trail history so long forever-loops don't grow memory unboundedly.
+        const MAX_TRAILS = 3000;
+        if (this.project.penTrails.length > MAX_TRAILS) {
+          this.project.penTrails.splice(0, this.project.penTrails.length - MAX_TRAILS);
+        }
       }
       sprite.x = nx;
       sprite.y = ny;
@@ -379,11 +440,19 @@ export class StageVM {
         thread.blockId = b.nextId;
         break;
       case 'looks_switchcostumeto': {
-        const idx = Number(str('COSTUME', '0'));
         if (sprite.costumes?.length) {
-          sprite.costumeIndex =
-            ((idx % sprite.costumes.length) + sprite.costumes.length) % sprite.costumes.length;
-          sprite.costumeUrl = sprite.costumes[sprite.costumeIndex].url;
+          const target = str('COSTUME', '0');
+          const asNumber = Number(target);
+          let idx: number;
+          if (Number.isFinite(asNumber) && target.trim() !== '') {
+            idx = ((Math.trunc(asNumber) % sprite.costumes.length) + sprite.costumes.length) % sprite.costumes.length;
+          } else {
+            // Fall back to matching by costume name
+            idx = sprite.costumes.findIndex((c) => c.name.toLowerCase() === target.toLowerCase());
+            if (idx < 0) idx = sprite.costumeIndex;
+          }
+          sprite.costumeIndex = idx;
+          sprite.costumeUrl = sprite.costumes[idx].url;
         }
         thread.blockId = b.nextId;
         break;
@@ -452,17 +521,24 @@ export class StageVM {
         thread.blockId = b.nextId;
         break;
       case 'control_forever':
-        thread.stack.push({ blockId: b.id, mode: 'forever' });
-        thread.blockId = b.branchId;
+        if (b.branchId) {
+          thread.stack.push({ blockId: b.id, mode: 'forever' });
+          thread.blockId = b.branchId;
+        } else {
+          thread.blockId = b.nextId;
+        }
         break;
-      case 'control_repeat':
-        thread.stack.push({
-          blockId: b.id,
-          mode: 'repeat',
-          remaining: Math.max(0, Math.floor(num('TIMES', 10))),
-        });
-        thread.blockId = b.branchId;
+      case 'control_repeat': {
+        const times = Math.max(0, Math.floor(num('TIMES', 10)));
+        if (times > 0 && b.branchId) {
+          thread.stack.push({ blockId: b.id, mode: 'repeat', remaining: times });
+          thread.blockId = b.branchId;
+        } else {
+          // repeat 0 times (or empty body) — skip the body entirely
+          thread.blockId = b.nextId;
+        }
         break;
+      }
       case 'control_if': {
         const ok = boolCondition(b, ctx);
         if (ok && b.branchId) {
@@ -483,7 +559,7 @@ export class StageVM {
       case 'control_repeat_until':
         if (boolCondition(b, ctx)) thread.blockId = b.nextId;
         else {
-          thread.stack.push({ blockId: b.id, mode: 'repeat', remaining: 999999 });
+          thread.stack.push({ blockId: b.id, mode: 'repeat_until' });
           thread.blockId = b.branchId;
         }
         break;
@@ -536,24 +612,31 @@ export class StageVM {
         break;
 
       case 'sensing_askandwait':
-        this.answer = window.prompt(str('QUESTION', '?'), '') || '';
-        this.project.variables['answer'] = this.answer;
-        thread.blockId = b.nextId;
+        if (this.pendingAsk) {
+          // Another thread is already waiting on an answer — skip this ask.
+          if (this.pendingAsk.thread !== thread) thread.blockId = b.nextId;
+          break;
+        }
+        // Pause this thread until the user answers in the in-app dialog.
+        this.pendingAsk = { thread, question: str('QUESTION', '?') };
+        this.emit();
         break;
       case 'sensing_resettimer':
         this.timerStart = now;
         thread.blockId = b.nextId;
         break;
 
-      case 'data_setvariableto':
-        this.project.variables[str('VARIABLE', 'score')] = isNaN(num('VALUE'))
-          ? str('VALUE')
-          : num('VALUE');
+      case 'data_setvariableto': {
+        const raw = String(evalInput(b, 'VALUE', ctx, 0));
+        const n = Number(raw);
+        this.project.variables[str('VARIABLE', 'score')] = raw.trim() !== '' && !Number.isNaN(n) ? n : raw;
         thread.blockId = b.nextId;
         break;
+      }
       case 'data_changevariableby': {
         const name = str('VARIABLE', 'score');
-        this.project.variables[name] = Number(this.project.variables[name] ?? 0) + num('VALUE', 1);
+        const cur = Number(this.project.variables[name]) || 0;
+        this.project.variables[name] = cur + num('VALUE', 1);
         thread.blockId = b.nextId;
         break;
       }
@@ -704,6 +787,25 @@ export class StageVM {
       default:
         thread.blockId = b.nextId;
     }
+  }
+
+  /**
+   * Resolve a pending "ask and wait" — called from the UI answer dialog.
+   * Stores the answer in the `answer` variable and resumes the waiting thread.
+   */
+  submitAnswer(text: string) {
+    this.answer = text;
+    this.project.variables['answer'] = text;
+    if (!this.pendingAsk) {
+      this.emit();
+      return;
+    }
+    const { thread } = this.pendingAsk;
+    this.pendingAsk = null;
+    const sprite = this.getSprite(thread.spriteId);
+    const askBlock = thread.blockId ? sprite?.blocks[thread.blockId] : null;
+    thread.blockId = askBlock?.nextId || null;
+    this.emit();
   }
 
   private clamp(sprite: SpriteState) {
